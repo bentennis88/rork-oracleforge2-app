@@ -35,6 +35,7 @@ import * as Haptics from 'expo-haptics';
 import { streamingLikeGeneration, buildConversationHistory } from '@/utils/claudeService';
 import colors from '@/constants/colors';
 import { useOracles } from '@/contexts/OracleContext';
+import { useAuth } from '@/hooks/useAuth';
 import DynamicOracleRenderer from '@/components/DynamicOracleRenderer';
 
 const iconMap: Record<string, React.ComponentType<{ size: number; color: string }>> = {
@@ -57,6 +58,7 @@ interface RefineMessage {
 export default function OracleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { user } = useAuth();
   const { oracles, updateOracle, deleteOracle, updateOracleData, addLog } = useOracles();
   
   const oracle = oracles.find(o => o.id === id);
@@ -352,6 +354,8 @@ export default function OracleDetailScreen() {
                 <DynamicOracleRenderer
                   key={`oracle-${oracle.id}-${renderKey}`}
                   code={oracle.generatedCode}
+                  userId={user?.id || 'guest'}
+                  oracleId={oracle.id}
                   data={oracle.data}
                   logs={oracle.logs || []}
                   onDataChange={handleDataChange}

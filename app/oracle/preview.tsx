@@ -16,6 +16,7 @@ import { ArrowLeft, Save, Sparkles, Info, RefreshCw, MessageCircle, Send, X, Che
 import * as Haptics from 'expo-haptics';
 import colors from '@/constants/colors';
 import { useOracles } from '@/contexts/OracleContext';
+import { useAuth } from '@/hooks/useAuth';
 import DynamicOracleRenderer from '@/components/DynamicOracleRenderer';
 import { streamingLikeGeneration, buildConversationHistory } from '@/utils/claudeService';
 
@@ -41,6 +42,7 @@ interface RefineMessage {
 export default function PreviewOracleScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ config?: string; name?: string }>();
+  const { user } = useAuth();
   const { createOracle, updateOracle } = useOracles();
   
   const config = useMemo<OracleConfig | null>(() => {
@@ -322,6 +324,8 @@ export default function PreviewOracleScreen() {
               <DynamicOracleRenderer
                 key={`preview-${conversationHistory.length}`}
                 code={activeConfig.code || ''}
+                userId={user?.id || 'guest'}
+                oracleId="preview"
                 data={previewData}
                 logs={previewLogs}
                 onDataChange={handleDataChange}

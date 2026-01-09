@@ -15,7 +15,10 @@ import {
   Switch,
   Modal,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
 import { 
   Check, Plus, Minus, Trash2, RefreshCw, Share2, ShoppingCart, Droplet, Flame, 
   TrendingUp, TrendingDown, Clock, Zap, Heart, Star, Calendar, Target, Award, 
@@ -41,19 +44,19 @@ import {
 } from 'lucide-react-native';
 import { BarChart, PieChart, LineChart } from 'react-native-chart-kit';
 import colors from '@/constants/colors';
+import firebaseService from '@/services/firebaseService';
 
-const screenWidth = Dimensions.get('window').width;
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
-const chartConfig = {
-  backgroundColor: '#000',
-  backgroundGradientFrom: '#0A0A0A',
-  backgroundGradientTo: '#0A0A0A',
-  decimalPlaces: 0,
-  color: (opacity = 1) => `rgba(10, 255, 230, ${opacity})`,
-  labelColor: () => '#888',
-  style: { borderRadius: 0 },
-  propsForBackgroundLines: { strokeDasharray: '', stroke: '#1F1F1F' },
-};
+
 
 interface OracleLog {
   id: string;
@@ -77,25 +80,27 @@ interface OracleConfig {
 
 interface DynamicOracleRendererProps {
   code: string;
+  userId: string;
+  oracleId: string;
   data: Record<string, unknown>;
   logs?: OracleLog[];
   onDataChange?: (data: Record<string, unknown>) => void;
   onAddLog?: (log: { type: string; value: number | string | Record<string, unknown>; metadata?: Record<string, unknown> }) => void;
   config?: OracleConfig;
+  onError?: (error: Error) => void;
 }
 
-const transpileJSX = (code: string): string => {
+const transpileCode = (code: string): string => {
   try {
     console.log('[Babel] Starting transpilation...');
     const result = Babel.transform(code, {
-      presets: [
-        'react',
-        ['env', {
-          targets: { esmodules: true },
-          exclude: ['transform-regenerator', 'transform-async-to-generator']
-        }]
-      ] as any,
-      filename: 'oracle-component.jsx',
+      presets: ['react', 'typescript'],
+      plugins: [
+        'transform-modules-commonjs',
+        'proposal-class-properties',
+        'proposal-object-rest-spread',
+      ],
+      filename: 'OracleComponent.tsx',
       sourceType: 'module',
     });
     
@@ -119,208 +124,154 @@ const transpileJSX = (code: string): string => {
   }
 };
 
-const hasOracleComponent = (code: string): boolean => {
-  return /function\s+OracleComponent\s*\(/.test(code) || 
-         /const\s+OracleComponent\s*=/.test(code) ||
-         /let\s+OracleComponent\s*=/.test(code) ||
-         /var\s+OracleComponent\s*=/.test(code);
-};
-
-const normalizeOracleCode = (code: string): string => {
-  let normalized = code;
-  
-  normalized = normalized.replace(/^\s*import\s+.*?[;\n]/gm, '');
-  normalized = normalized.replace(/^\s*export\s+(default\s+)?/gm, '');
-  
-  if (!hasOracleComponent(normalized)) {
-    const arrowMatch = normalized.match(/const\s+(\w+)\s*=\s*\(\s*\{\s*data/);
-    if (arrowMatch) {
-      normalized = normalized.replace(
-        new RegExp(`const\\s+${arrowMatch[1]}\\s*=`),
-        'const OracleComponent ='
-      );
-    }
+const createExecutionContext = () => {
+  return {
+    React,
+    useState: React.useState,
+    useEffect: React.useEffect,
+    useCallback: React.useCallback,
+    useMemo: React.useMemo,
+    useRef: React.useRef,
     
-    const funcMatch = normalized.match(/function\s+(\w+)\s*\(\s*\{\s*data/);
-    if (funcMatch && funcMatch[1] !== 'OracleComponent') {
-      normalized = normalized.replace(
-        new RegExp(`function\\s+${funcMatch[1]}\\s*\\(`),
-        'function OracleComponent('
-      );
-    }
-  }
-  
-  return normalized;
+    View,
+    Text,
+    StyleSheet,
+    TouchableOpacity,
+    TextInput,
+    ScrollView,
+    Alert,
+    Platform,
+    Share,
+    Dimensions,
+    FlatList,
+    Switch,
+    Modal,
+    Animated,
+    ActivityIndicator,
+    
+    AsyncStorage,
+    Notifications,
+    
+    BarChart,
+    PieChart,
+    LineChart,
+    
+    Check, Plus, Minus, Trash2, RefreshCw, Share2, ShoppingCart, Droplet, Flame,
+    TrendingUp, TrendingDown, Clock, Zap, Heart, Star, Calendar, Target, Award,
+    Bell, Activity, DollarSign, BarChart3, Coffee, Moon, Sun, Edit2, Save, X,
+    ChevronRight, ChevronDown, Search, Filter, Settings, User, Home, MapPin,
+    Phone, Mail, Camera, Image, Play, Pause, Square, Circle, Triangle,
+    ArrowUp, ArrowDown, ArrowLeft, ArrowRight, RotateCcw, Volume2, VolumeX,
+    Wifi, Battery, Bluetooth, Lock, Unlock, Eye, EyeOff, Copy, Clipboard,
+    Download, Upload, Link, ExternalLink, Bookmark, Tag, Hash, AtSign,
+    MessageCircle, Send, Paperclip, File, Folder, Archive, Package, Gift,
+    CreditCard, Wallet, PiggyBank, Receipt, Calculator, Percent, Timer,
+    Album, Hourglass, Watch, Sunrise, Sunset, Cloud, CloudRain, Snowflake,
+    Wind, Thermometer, Umbrella, Briefcase, Building, Store, Truck, Car,
+    Bike, Plane, Train, Ship, Anchor, Flag, Map, Compass, Navigation, Globe,
+    Mountain, Trees, Flower, Leaf, Apple, Pizza, Utensils, Wine, Beer, Cake,
+    IceCream, Pill, Stethoscope, Syringe, Bandage, Dumbbell, Trophy, Medal,
+    Crown, Gem, Sparkles, Wand2, Lightbulb, Rocket, Puzzle, Gamepad,
+    Dice: Dice5,
+    Music, Headphones, Mic, Video, Tv, Monitor, Smartphone, Tablet, Laptop,
+    Keyboard, Mouse, Printer, Server, Database, HardDrive, Cpu, Code, Terminal,
+    Bug, Shield, Key, Fingerprint, Scan, QrCode, AlertCircle, Info, HelpCircle,
+    ListTodo, ListChecks, Grid, Layers, Layout, Box, Hexagon, Maximize, Minimize,
+    MoreHorizontal, MoreVertical, Menu, SlidersHorizontal, ToggleLeft, ToggleRight,
+    
+    firebaseService,
+    
+    console,
+    alert: Alert.alert,
+    Math,
+    Date,
+    JSON,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+  };
 };
 
 const createOracleComponent = (code: string) => {
   try {
-    console.log('[CodeBasedOracle] Creating component, code length:', code.length);
+    console.log('[DynamicOracle] Creating component, code length:', code.length);
     
     if (!code || code.length < 50) {
-      console.log('[CodeBasedOracle] Code too short, skipping');
+      console.log('[DynamicOracle] Code too short, skipping');
       return null;
     }
     
-    let cleanCode = normalizeOracleCode(code);
-    
-    if (!hasOracleComponent(cleanCode)) {
-      console.error('[CodeBasedOracle] No OracleComponent found after normalization');
-      console.log('[CodeBasedOracle] Code preview:', cleanCode.substring(0, 300));
-      throw new Error('No valid component function found. Ensure code defines OracleComponent.');
+    if (!code.includes('import') && !code.includes('export')) {
+      throw new Error('Invalid component: missing imports or export statement');
     }
     
-    console.log('[CodeBasedOracle] Transpiling JSX with Babel...');
-    const transpiledCode = transpileJSX(cleanCode);
+    console.log('[DynamicOracle] Transpiling code with Babel...');
+    const transpiled = transpileCode(code);
     
-    console.log('[CodeBasedOracle] Transpiled code preview:', transpiledCode.substring(0, 200));
-
-    const wrappedCode = `
-      (function() {
-        'use strict';
-        try {
-          ${transpiledCode}
-          if (typeof OracleComponent !== 'undefined') {
-            console.log('[Eval] OracleComponent found');
-            return OracleComponent;
-          }
-          console.error('[Eval] OracleComponent not defined');
-          return null;
-        } catch (evalError) {
-          console.error('[Eval] Execution error:', evalError);
-          throw evalError;
-        }
-      })()`;
-
-    console.log('[CodeBasedOracle] Creating safe execution context...');
-    const ComponentCreator = new Function(
-      'React',
-      'useState',
-      'useEffect',
-      'useCallback',
-      'useMemo',
-      'useRef',
-      'View',
-      'Text',
-      'StyleSheet',
-      'TouchableOpacity',
-      'TextInput',
-      'ScrollView',
-      'FlatList',
-      'Switch',
-      'Modal',
-      'Animated',
-      'Alert',
-      'Share',
-      'Platform',
-      'Dimensions',
-      'Check', 'Plus', 'Minus', 'Trash2', 'RefreshCw', 'Share2', 'Droplet', 'Flame',
-      'TrendingUp', 'TrendingDown', 'Clock', 'Zap', 'Heart', 'Star', 'Calendar', 'Target',
-      'Award', 'Bell', 'Activity', 'ShoppingCart', 'DollarSign', 'BarChart3', 'Coffee', 'Moon', 'Sun',
-      'Edit2', 'Save', 'X', 'ChevronRight', 'ChevronDown', 'Search', 'Filter', 'Settings',
-      'User', 'Home', 'MapPin', 'Phone', 'Mail', 'Camera', 'Image', 'Play', 'Pause',
-      'Square', 'Circle', 'Triangle', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-      'RotateCcw', 'Volume2', 'VolumeX', 'Wifi', 'Battery', 'Bluetooth', 'Lock', 'Unlock',
-      'Eye', 'EyeOff', 'Copy', 'Clipboard', 'Download', 'Upload', 'Link', 'ExternalLink',
-      'Bookmark', 'Tag', 'Hash', 'AtSign', 'MessageCircle', 'Send', 'Paperclip', 'File',
-      'Folder', 'Archive', 'Package', 'Gift', 'CreditCard', 'Wallet', 'PiggyBank', 'Receipt',
-      'Calculator', 'Percent', 'Timer', 'Alarm', 'Stopwatch', 'Watch', 'Sunrise', 'Sunset',
-      'Cloud', 'CloudRain', 'Snowflake', 'Wind', 'Thermometer', 'Umbrella', 'Briefcase',
-      'Building', 'Store', 'Truck', 'Car', 'Bike', 'Plane', 'Train', 'Ship', 'Anchor',
-      'Flag', 'Map', 'Compass', 'Navigation', 'Globe', 'Mountain', 'Trees', 'Flower', 'Leaf',
-      'Apple', 'Pizza', 'Utensils', 'Wine', 'Beer', 'Cake', 'IceCream', 'Pill', 'Stethoscope',
-      'Syringe', 'Bandage', 'Dumbbell', 'Trophy', 'Medal', 'Crown', 'Gem', 'Sparkles', 'Wand2',
-      'Lightbulb', 'Rocket', 'Puzzle', 'Gamepad', 'Dice', 'Music', 'Headphones', 'Mic', 'Video',
-      'Tv', 'Monitor', 'Smartphone', 'Tablet', 'Laptop', 'Keyboard', 'Mouse', 'Printer',
-      'Server', 'Database', 'HardDrive', 'Cpu', 'Code', 'Terminal', 'Bug', 'Shield', 'Key',
-      'Fingerprint', 'Scan', 'QrCode', 'AlertCircle', 'Info', 'HelpCircle',
-      'ListTodo', 'ListChecks', 'Grid', 'Layers', 'Layout', 'Box', 'Hexagon', 'Maximize', 'Minimize',
-      'MoreHorizontal', 'MoreVertical', 'Menu', 'SlidersHorizontal', 'ToggleLeft', 'ToggleRight',
-      'BarChart', 'LineChart', 'PieChart',
-      'screenWidth',
-      'colors',
-      'chartConfig',
-      `return ${wrappedCode}`
+    if (!transpiled) {
+      throw new Error('Transpilation failed: empty output');
+    }
+    
+    console.log('[DynamicOracle] Transpiled code preview:', transpiled.substring(0, 200));
+    
+    const context = createExecutionContext();
+    const module = { exports: {} };
+    const require = (name: string) => {
+      if (name === 'react') return React;
+      if (name === 'react-native') return {
+        View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView,
+        Alert, Platform, Share, Dimensions, FlatList, Switch, Modal,
+        Animated, ActivityIndicator
+      };
+      if (name === '@react-native-async-storage/async-storage') return AsyncStorage;
+      if (name === 'expo-notifications') return Notifications;
+      if (name === 'react-native-chart-kit') return { BarChart, PieChart, LineChart };
+      if (name === 'lucide-react-native') return context;
+      throw new Error(`Module not found: ${name}`);
+    };
+    
+    const executor = new Function(
+      'module',
+      'exports',
+      'require',
+      ...Object.keys(context),
+      `
+      ${transpiled}
+      return module.exports.default || module.exports;
+      `
     );
-
-    const useRef = React.useRef;
-    const Dice = Dice5;
-
-    const component = ComponentCreator(
-      React,
-      useState,
-      useEffect,
-      useCallback,
-      useMemo,
-      useRef,
-      View,
-      Text,
-      StyleSheet,
-      TouchableOpacity,
-      TextInput,
-      ScrollView,
-      FlatList,
-      Switch,
-      Modal,
-      Animated,
-      Alert,
-      Share,
-      Platform,
-      Dimensions,
-      Check, Plus, Minus, Trash2, RefreshCw, Share2, Droplet, Flame,
-      TrendingUp, TrendingDown, Clock, Zap, Heart, Star, Calendar, Target,
-      Award, Bell, Activity, ShoppingCart, DollarSign, BarChart3, Coffee, Moon, Sun,
-      Edit2, Save, X, ChevronRight, ChevronDown, Search, Filter, Settings,
-      User, Home, MapPin, Phone, Mail, Camera, Image, Play, Pause,
-      Square, Circle, Triangle, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
-      RotateCcw, Volume2, VolumeX, Wifi, Battery, Bluetooth, Lock, Unlock,
-      Eye, EyeOff, Copy, Clipboard, Download, Upload, Link, ExternalLink,
-      Bookmark, Tag, Hash, AtSign, MessageCircle, Send, Paperclip, File,
-      Folder, Archive, Package, Gift, CreditCard, Wallet, PiggyBank, Receipt,
-      Calculator, Percent, Timer, Album, Hourglass, Watch, Sunrise, Sunset,
-      Cloud, CloudRain, Snowflake, Wind, Thermometer, Umbrella, Briefcase,
-      Building, Store, Truck, Car, Bike, Plane, Train, Ship, Anchor,
-      Flag, Map, Compass, Navigation, Globe, Mountain, Trees, Flower, Leaf,
-      Apple, Pizza, Utensils, Wine, Beer, Cake, IceCream, Pill, Stethoscope,
-      Syringe, Bandage, Dumbbell, Trophy, Medal, Crown, Gem, Sparkles, Wand2,
-      Lightbulb, Rocket, Puzzle, Gamepad, Dice, Music, Headphones, Mic, Video,
-      Tv, Monitor, Smartphone, Tablet, Laptop, Keyboard, Mouse, Printer,
-      Server, Database, HardDrive, Cpu, Code, Terminal, Bug, Shield, Key,
-      Fingerprint, Scan, QrCode, AlertCircle, Info, HelpCircle,
-      ListTodo, ListChecks, Grid, Layers, Layout, Box, Hexagon, Maximize, Minimize,
-      MoreHorizontal, MoreVertical, Menu, SlidersHorizontal, ToggleLeft, ToggleRight,
-      BarChart, LineChart, PieChart,
-      screenWidth,
-      colors,
-      chartConfig
+    
+    console.log('[DynamicOracle] Executing component code...');
+    const LoadedComponent = executor(
+      module,
+      module.exports,
+      require,
+      ...Object.values(context)
     );
-
-    if (!component) {
-      console.log('[CodeBasedOracle] Component returned null');
-      return null;
+    
+    if (!LoadedComponent) {
+      throw new Error('No component exported from code');
     }
     
-    if (typeof component !== 'function') {
-      console.log('[CodeBasedOracle] Expected function, got', typeof component);
-      return null;
+    if (typeof LoadedComponent !== 'function') {
+      throw new Error('Exported value is not a valid React component');
     }
-
-    console.log('[CodeBasedOracle] ✅ Component created successfully');
-    return component;
+    
+    console.log('[DynamicOracle] ✅ Component created successfully');
+    return LoadedComponent;
   } catch (error) {
-    console.error('[CodeBasedOracle] ❌ Error creating component:', error);
+    console.error('[DynamicOracle] ❌ Error creating component:', error);
     
     const errorMsg = error instanceof Error ? error.message : String(error);
     const errorName = error instanceof Error ? error.name : '';
     
-    // Handle various error types gracefully
     if (errorMsg.includes('sandbox') || 
         errorMsg.includes('timeout') || 
         errorMsg.includes('TimeoutError') || 
         errorMsg.includes('not found') ||
         errorName === 'TimeoutError') {
-      // These are likely stale errors from previous implementations - just return null to use fallback
-      console.log('[CodeBasedOracle] Ignoring external service error, using fallback');
+      console.log('[DynamicOracle] Ignoring external service error, using fallback');
       return null;
     } else if (error instanceof SyntaxError) {
       throw new Error(`Syntax Error: ${error.message}`);
@@ -330,7 +281,7 @@ const createOracleComponent = (code: string) => {
       throw new Error(`Type Error: ${error.message}`);
     }
     
-    throw new Error(errorMsg || 'Failed to create component');
+    throw error;
   }
 };
 
@@ -464,21 +415,19 @@ const FallbackOracle: React.FC<{
 };
 
 export default function DynamicOracleRenderer({ 
-  code, 
+  code,
+  userId,
+  oracleId,
   data, 
   logs = [], 
   onDataChange, 
   onAddLog, 
-  config 
+  config,
+  onError
 }: DynamicOracleRendererProps) {
   const [error, setError] = useState<string | null>(null);
-  const [GeneratedComponent, setGeneratedComponent] = useState<React.ComponentType<{
-    data: Record<string, unknown>;
-    onDataChange?: (data: Record<string, unknown>) => void;
-    onAddLog?: (log: { type: string; value: number | string | Record<string, unknown>; metadata?: Record<string, unknown> }) => void;
-    logs: OracleLog[];
-    accent: string;
-  }> | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [GeneratedComponent, setGeneratedComponent] = useState<React.ComponentType<any> | null>(null);
   
   const accent = config?.accentColor || '#0AFFE6';
 
@@ -487,23 +436,13 @@ export default function DynamicOracleRenderer({
       console.log('[DynamicRenderer] No valid code provided, using fallback');
       setGeneratedComponent(null);
       setError(null);
-      return;
-    }
-    
-    const hasValidComponent = hasOracleComponent(code) || 
-      /const\s+\w+\s*=\s*\(\s*\{\s*data/.test(code) ||
-      /function\s+\w+\s*\(\s*\{\s*data/.test(code);
-    
-    if (!hasValidComponent) {
-      console.log('[DynamicRenderer] Code does not contain a valid component structure');
-      setGeneratedComponent(null);
-      setError(null);
+      setIsLoading(false);
       return;
     }
 
     console.log('[DynamicRenderer] Attempting to create component from code');
+    setIsLoading(true);
     
-    // Use requestAnimationFrame to avoid blocking the UI
     const timeoutId = setTimeout(() => {
       try {
         const component = createOracleComponent(code);
@@ -512,17 +451,16 @@ export default function DynamicOracleRenderer({
           setError(null);
           console.log('[DynamicRenderer] Component created successfully');
         } else {
-          // Component creation returned null - use fallback without error
           console.log('[DynamicRenderer] Using fallback component');
           setGeneratedComponent(null);
           setError(null);
         }
-      } catch (err) {
+        setIsLoading(false);
+      } catch (err: any) {
         console.error('[DynamicRenderer] Failed to create component:', err);
         const errorMessage = err instanceof Error ? err.message : String(err);
         const errorName = err instanceof Error ? err.name : '';
         
-        // Check for sandbox/timeout errors and use fallback instead of showing error
         if (errorMessage.includes('sandbox') || 
             errorMessage.includes('timeout') || 
             errorMessage.includes('TimeoutError') || 
@@ -534,12 +472,23 @@ export default function DynamicOracleRenderer({
         } else {
           setError(errorMessage);
           setGeneratedComponent(null);
+          onError?.(err);
         }
+        setIsLoading(false);
       }
     }, 0);
     
     return () => clearTimeout(timeoutId);
-  }, [code]);
+  }, [code, onError]);
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={accent} />
+        <Text style={styles.loadingText}>Loading oracle...</Text>
+      </View>
+    );
+  }
 
   if (error) {
     return (
@@ -553,11 +502,9 @@ export default function DynamicOracleRenderer({
     return (
       <View style={styles.container}>
         <GeneratedComponent 
-          data={data} 
-          onDataChange={onDataChange} 
-          onAddLog={onAddLog} 
-          logs={logs}
-          accent={accent}
+          userId={userId}
+          oracleId={oracleId}
+          firebaseService={firebaseService}
         />
       </View>
     );
@@ -580,6 +527,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: 12,
     overflow: 'hidden',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    minHeight: 300,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 14,
+    color: colors.textMuted,
   },
   errorContainer: {
     flex: 1,
