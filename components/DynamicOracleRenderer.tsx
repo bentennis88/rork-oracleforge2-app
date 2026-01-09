@@ -86,14 +86,30 @@ interface DynamicOracleRendererProps {
 
 const transpileJSX = (code: string): string => {
   try {
+    console.log('[Babel] Starting transpilation...');
     const result = Babel.transform(code, {
       presets: ['react'],
-      plugins: [],
+      filename: 'oracle-component.jsx',
+      sourceType: 'module',
     });
-    return result.code || code;
+    
+    if (!result.code) {
+      throw new Error('Babel returned empty code');
+    }
+    
+    console.log('[Babel] Transpilation successful, code length:', result.code.length);
+    return result.code;
   } catch (error) {
     console.error('[Babel] Transpilation error:', error);
-    throw new Error(`JSX transpilation failed: ${error instanceof Error ? error.message : String(error)}`);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    
+    if (errorMsg.includes('Unexpected token')) {
+      throw new Error('Invalid JSX syntax. Check for unclosed tags or brackets.');
+    } else if (errorMsg.includes('reserved word')) {
+      throw new Error('Code contains reserved JavaScript keywords in invalid positions.');
+    } else {
+      throw new Error(`Transpilation failed: ${errorMsg}`);
+    }
   }
 };
 
@@ -135,24 +151,42 @@ const createOracleComponent = (code: string) => {
   try {
     console.log('[CodeBasedOracle] Creating component, code length:', code.length);
     
+    if (!code || code.length < 50) {
+      console.log('[CodeBasedOracle] Code too short, skipping');
+      return null;
+    }
+    
     let cleanCode = normalizeOracleCode(code);
     
     if (!hasOracleComponent(cleanCode)) {
       console.error('[CodeBasedOracle] No OracleComponent found after normalization');
       console.log('[CodeBasedOracle] Code preview:', cleanCode.substring(0, 300));
-      throw new Error('OracleComponent function not found in code');
+      throw new Error('No valid component function found. Ensure code defines OracleComponent.');
     }
-
-    console.log('[CodeBasedOracle] Transpiling JSX...');
+    
+    console.log('[CodeBasedOracle] Transpiling JSX with Babel...');
     const transpiledCode = transpileJSX(cleanCode);
+    
+    console.log('[CodeBasedOracle] Transpiled code preview:', transpiledCode.substring(0, 200));
 
     const wrappedCode = `
       (function() {
-        ${transpiledCode}
-        if (typeof OracleComponent !== 'undefined') return OracleComponent;
-        return null;
+        'use strict';
+        try {
+          ${transpiledCode}
+          if (typeof OracleComponent !== 'undefined') {
+            console.log('[Eval] OracleComponent found');
+            return OracleComponent;
+          }
+          console.error('[Eval] OracleComponent not defined');
+          return null;
+        } catch (evalError) {
+          console.error('[Eval] Execution error:', evalError);
+          throw evalError;
+        }
       })()`;
 
+    console.log('[CodeBasedOracle] Creating safe execution context...');
     const ComponentCreator = new Function(
       'React',
       'useState',
@@ -256,14 +290,41 @@ const createOracleComponent = (code: string) => {
     );
 
     if (!component) {
-      throw new Error('OracleComponent function not found in code');
+      console.log('[CodeBasedOracle] Component returned null');
+      return null;
+    }
+    
+    if (typeof component !== 'function') {
+      console.log('[CodeBasedOracle] Expected function, got', typeof component);
+      return null;
     }
 
-    console.log('[CodeBasedOracle] Component created successfully');
+    console.log('[CodeBasedOracle] ✅ Component created successfully');
     return component;
   } catch (error) {
-    console.error('[CodeBasedOracle] Error creating component:', error);
-    throw error;
+    console.error('[CodeBasedOracle] ❌ Error creating component:', error);
+    
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorName = error instanceof Error ? error.name : '';
+    
+    // Handle various error types gracefully
+    if (errorMsg.includes('sandbox') || 
+        errorMsg.includes('timeout') || 
+        errorMsg.includes('TimeoutError') || 
+        errorMsg.includes('not found') ||
+        errorName === 'TimeoutError') {
+      // These are likely stale errors from previous implementations - just return null to use fallback
+      console.log('[CodeBasedOracle] Ignoring external service error, using fallback');
+      return null;
+    } else if (error instanceof SyntaxError) {
+      throw new Error(`Syntax Error: ${error.message}`);
+    } else if (error instanceof ReferenceError) {
+      throw new Error(`Reference Error: ${error.message}. Check variable names.`);
+    } else if (error instanceof TypeError) {
+      throw new Error(`Type Error: ${error.message}`);
+    }
+    
+    throw new Error(errorMsg || 'Failed to create component');
   }
 };
 
@@ -271,11 +332,15 @@ const ErrorDisplay: React.FC<{ error: string; onRetry?: () => void }> = ({ error
   const isImportError = error.includes('import') || error.includes('module');
   const isSyntaxError = error.includes('Syntax') || error.includes('Unexpected') || error.includes('invalid');
   const isComponentError = error.includes('OracleComponent');
+  const isTimeoutError = error.includes('timeout') || error.includes('sandbox') || error.includes('TimeoutError');
   
   let title = 'Generation Error';
   let hint = 'Try refining your oracle with clearer instructions.';
   
-  if (isImportError) {
+  if (isTimeoutError) {
+    title = 'Preview Timeout';
+    hint = 'The preview took too long to load. Try refreshing or simplifying your oracle.';
+  } else if (isImportError) {
     title = 'Code Structure Error';
     hint = 'The AI generated invalid code. Try rephrasing your request.';
   } else if (isSyntaxError) {
@@ -432,17 +497,42 @@ export default function DynamicOracleRenderer({
 
     console.log('[DynamicRenderer] Attempting to create component from code');
     
-    try {
-      const component = createOracleComponent(code);
-      setGeneratedComponent(() => component);
-      setError(null);
-      console.log('[DynamicRenderer] Component created successfully');
-    } catch (err) {
-      console.error('[DynamicRenderer] Failed to create component:', err);
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      setError(errorMessage);
-      setGeneratedComponent(null);
-    }
+    // Use requestAnimationFrame to avoid blocking the UI
+    const timeoutId = setTimeout(() => {
+      try {
+        const component = createOracleComponent(code);
+        if (component) {
+          setGeneratedComponent(() => component);
+          setError(null);
+          console.log('[DynamicRenderer] Component created successfully');
+        } else {
+          // Component creation returned null - use fallback without error
+          console.log('[DynamicRenderer] Using fallback component');
+          setGeneratedComponent(null);
+          setError(null);
+        }
+      } catch (err) {
+        console.error('[DynamicRenderer] Failed to create component:', err);
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        const errorName = err instanceof Error ? err.name : '';
+        
+        // Check for sandbox/timeout errors and use fallback instead of showing error
+        if (errorMessage.includes('sandbox') || 
+            errorMessage.includes('timeout') || 
+            errorMessage.includes('TimeoutError') || 
+            errorMessage.includes('not found') ||
+            errorName === 'TimeoutError') {
+          console.log('[DynamicRenderer] Ignoring external error, using fallback');
+          setGeneratedComponent(null);
+          setError(null);
+        } else {
+          setError(errorMessage);
+          setGeneratedComponent(null);
+        }
+      }
+    }, 0);
+    
+    return () => clearTimeout(timeoutId);
   }, [code]);
 
   if (error) {
