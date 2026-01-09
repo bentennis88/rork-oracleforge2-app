@@ -11,6 +11,8 @@ import {
   Animated,
   Easing,
   Dimensions,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { useRouter } from 'expo-router';
@@ -29,12 +31,15 @@ import {
   Palette,
   Layers,
   CheckCircle,
+  Save,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useOracles } from '@/contexts/OracleContext';
 import { generateOracleCode, refineOracleCode } from '@/utils/grokApi';
+import DynamicOracleRenderer from '@/components/DynamicOracleRenderer';
+import firebaseService from '@/services/firebaseService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -85,7 +90,7 @@ const GENERATION_STAGES = [
 
 export default function CreateScreen() {
   const router = useRouter();
-  const { isAuthenticated, isPro } = useAuth();
+  const { user, isAuthenticated, isPro } = useAuth();
   const { oracles } = useOracles();
   
   const FREE_ORACLE_LIMIT = 2;
@@ -102,6 +107,9 @@ export default function CreateScreen() {
   const [generatedCode, setGeneratedCode] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentStage, setCurrentStage] = useState(0);
+  const [showPreview, setShowPreview] = useState(false);
+  const [oracleName, setOracleName] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const scrollViewRef = useRef<ScrollView>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -211,6 +219,7 @@ export default function CreateScreen() {
     setShowSuggestions(false);
     setInput('');
     setCurrentStage(0);
+    setShowPreview(false);
     
     const userMsg: ChatMessage = {
       id: `user_${Date.now()}`,
@@ -287,6 +296,8 @@ export default function CreateScreen() {
           accentColor: '#0AFFE6',
           icon: '🔮',
         };
+        
+        setOracleName(result.name);
       }
       
       console.log('[Create] Oracle generated/refined:', result.name);
@@ -336,15 +347,72 @@ export default function CreateScreen() {
 
   const handlePreviewOracle = (oracleData: ChatMessage['oracleData']) => {
     if (!oracleData) return;
-    
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push({
-      pathname: '/oracle/preview',
-      params: {
-        config: JSON.stringify(oracleData.config),
-        name: oracleData.config.name,
-      },
-    });
+    setShowPreview(true);
+    scrollToBottom();
+  };
+
+  const handleSaveOracle = async () => {
+    if (!lastCreatedOracle || !generatedCode) {
+      Alert.alert('Error', 'No oracle to save');
+      return;
+    }
+
+    if (!oracleName.trim()) {
+      Alert.alert('Error', 'Please provide a name for your oracle');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const oracleId = `oracle_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      const oracleData = {
+        id: oracleId,
+        name: oracleName.trim(),
+        description: lastCreatedOracle.description,
+        prompt: lastCreatedOracle.description,
+        code: generatedCode,
+        accentColor: lastCreatedOracle.accentColor,
+        icon: lastCreatedOracle.icon,
+        conversationHistory,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await firebaseService.saveOracle(user?.id || '', oracleData);
+      
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      Alert.alert(
+        'Success!',
+        'Your oracle has been saved',
+        [
+          {
+            text: 'View Dashboard',
+            onPress: () => router.push('/(tabs)'),
+          },
+          {
+            text: 'Create Another',
+            onPress: () => {
+              setInput('');
+              setChatMessages([]);
+              setGeneratedCode('');
+              setConversationHistory([]);
+              setShowPreview(false);
+              setLastCreatedOracle(null);
+              setOracleName('');
+              setShowSuggestions(true);
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      Alert.alert('Save Failed', error.message || 'Failed to save oracle');
+      console.error('Save error:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const startRecording = async () => {
@@ -440,6 +508,8 @@ export default function CreateScreen() {
     setGeneratedCode('');
     setShowSuggestions(true);
     setLastCreatedOracle(null);
+    setShowPreview(false);
+    setOracleName('');
   };
 
   if (!isAuthenticated) {
@@ -573,13 +643,13 @@ export default function CreateScreen() {
                     {message.content}
                   </Text>
                   
-                  {message.oracleData && (
+                  {message.oracleData && !showPreview && (
                     <TouchableOpacity
                       style={styles.previewButton}
                       onPress={() => handlePreviewOracle(message.oracleData)}
                     >
                       <Zap size={16} color={colors.background} />
-                      <Text style={styles.previewButtonText}>Preview & Save Oracle</Text>
+                      <Text style={styles.previewButtonText}>Show Preview</Text>
                     </TouchableOpacity>
                   )}
                 </>
@@ -587,6 +657,61 @@ export default function CreateScreen() {
             </View>
           </View>
         ))}
+
+        {showPreview && lastCreatedOracle && generatedCode && (
+          <View style={styles.previewSection}>
+            <View style={styles.previewHeader}>
+              <Text style={styles.previewTitle}>Preview</Text>
+              <TouchableOpacity
+                style={styles.closePreviewButton}
+                onPress={() => setShowPreview(false)}
+              >
+                <X size={20} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.previewContainer}>
+              <DynamicOracleRenderer
+                code={generatedCode}
+                userId={user?.id || 'preview'}
+                oracleId="preview"
+                data={{ items: [] }}
+                logs={[]}
+                config={lastCreatedOracle}
+                onError={(error) => {
+                  console.error('Preview error:', error);
+                  Alert.alert('Preview Error', error.message);
+                }}
+              />
+            </View>
+
+            <View style={styles.saveSection}>
+              <Text style={styles.saveLabel}>Oracle Name</Text>
+              <TextInput
+                style={styles.nameInput}
+                value={oracleName}
+                onChangeText={setOracleName}
+                placeholder="My Awesome Oracle"
+                placeholderTextColor={colors.textMuted}
+              />
+              
+              <TouchableOpacity
+                style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
+                onPress={handleSaveOracle}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color={colors.background} />
+                ) : (
+                  <>
+                    <Save size={20} color={colors.background} />
+                    <Text style={styles.saveButtonText}>Save Oracle</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </ScrollView>
 
       <View style={styles.inputContainer}>
@@ -868,6 +993,73 @@ const styles = StyleSheet.create({
   },
   previewButtonText: {
     fontSize: 14,
+    fontWeight: '600' as const,
+    color: colors.background,
+  },
+  previewSection: {
+    marginTop: 24,
+    gap: 16,
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  previewTitle: {
+    fontSize: 18,
+    fontWeight: '600' as const,
+    color: colors.text,
+  },
+  closePreviewButton: {
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+  },
+  previewContainer: {
+    height: 400,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    overflow: 'hidden',
+  },
+  saveSection: {
+    gap: 12,
+    paddingTop: 8,
+  },
+  saveLabel: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: colors.text,
+  },
+  nameInput: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
+    color: colors.text,
+  },
+  saveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.accent,
+    borderRadius: 12,
+    paddingVertical: 16,
+  },
+  saveButtonDisabled: {
+    opacity: 0.5,
+  },
+  saveButtonText: {
+    fontSize: 16,
     fontWeight: '600' as const,
     color: colors.background,
   },
