@@ -34,7 +34,7 @@ import * as Haptics from 'expo-haptics';
 import colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useOracles } from '@/contexts/OracleContext';
-import { streamingLikeGeneration } from '@/utils/claudeService';
+import { generateOracleCode, refineOracleCode } from '@/utils/grokApi';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -98,7 +98,8 @@ export default function CreateScreen() {
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [pendingOracle, setPendingOracle] = useState<OracleCode | null>(null);
   const [lastCreatedOracle, setLastCreatedOracle] = useState<OracleCode | null>(null);
-  const [claudeHistory, setClaudeHistory] = useState<ClaudeConversation[]>([]);
+  const [conversationHistory, setConversationHistory] = useState<ClaudeConversation[]>([]);
+  const [generatedCode, setGeneratedCode] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentStage, setCurrentStage] = useState(0);
 
@@ -236,30 +237,59 @@ export default function CreateScreen() {
     try {
       console.log('[Create] Calling Claude API with prompt:', userMessage);
       
-      const result = await streamingLikeGeneration(
-        userMessage,
-        claudeHistory,
-        lastCreatedOracle?.code,
-        (stage) => {
-          const stageIndex = GENERATION_STAGES.findIndex(s => s.text === stage);
-          if (stageIndex >= 0) {
-            setCurrentStage(stageIndex);
-          }
+      const isRefinement = lastCreatedOracle && generatedCode;
+      let result;
+      
+      if (isRefinement) {
+        console.log('[Create] Refining existing oracle...');
+        setCurrentStage(2);
+        setChatMessages(prev => prev.map(m => 
+          m.id === generatingMsgId 
+            ? { ...m, generatingStage: GENERATION_STAGES[2].text }
+            : m
+        ));
+        
+        const apiResult = await refineOracleCode(
+          generatedCode,
+          userMessage,
+          conversationHistory
+        );
+        
+        setGeneratedCode(apiResult.code);
+        setConversationHistory(apiResult.conversationHistory);
+        
+        result = {
+          ...lastCreatedOracle,
+          code: apiResult.code,
+        };
+      } else {
+        console.log('[Create] Generating new oracle...');
+        
+        for (let i = 0; i < GENERATION_STAGES.length; i++) {
+          setCurrentStage(i);
           setChatMessages(prev => prev.map(m => 
             m.id === generatingMsgId 
-              ? { ...m, generatingStage: stage }
+              ? { ...m, generatingStage: GENERATION_STAGES[i].text }
               : m
           ));
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
-      );
+        
+        const apiResult = await generateOracleCode(userMessage, []);
+        
+        setGeneratedCode(apiResult.code);
+        setConversationHistory(apiResult.conversationHistory);
+        
+        result = {
+          name: userMessage.split(':')[0].trim().substring(0, 30),
+          description: userMessage,
+          code: apiResult.code,
+          accentColor: '#0AFFE6',
+          icon: '🔮',
+        };
+      }
       
-      console.log('[Create] Oracle generated:', result.name);
-      
-      setClaudeHistory(prev => [
-        ...prev,
-        { role: 'user', content: userMessage },
-        { role: 'assistant', content: `Created ${result.name}: ${result.description}` },
-      ]);
+      console.log('[Create] Oracle generated/refined:', result.name);
       
       setPendingOracle(result);
       setLastCreatedOracle(result);
@@ -406,7 +436,8 @@ export default function CreateScreen() {
   const clearChat = () => {
     Haptics.selectionAsync();
     setChatMessages([]);
-    setClaudeHistory([]);
+    setConversationHistory([]);
+    setGeneratedCode('');
     setShowSuggestions(true);
     setLastCreatedOracle(null);
   };
