@@ -192,8 +192,6 @@ export default function PreviewOracleScreen() {
 
       setCurrentConfig(updatedConfig);
       setConversationHistory(updatedHistory);
-      setPreviewData({});
-      setPreviewLogs([]);
       
       setRefineMessages(prev => prev.filter(m => m.id !== generatingId));
       
