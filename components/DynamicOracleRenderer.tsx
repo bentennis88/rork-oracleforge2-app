@@ -88,7 +88,13 @@ const transpileJSX = (code: string): string => {
   try {
     console.log('[Babel] Starting transpilation...');
     const result = Babel.transform(code, {
-      presets: ['react', 'env'] as string[],
+      presets: [
+        'react',
+        ['env', {
+          targets: { esmodules: true },
+          exclude: ['transform-regenerator', 'transform-async-to-generator']
+        }]
+      ] as any,
       filename: 'oracle-component.jsx',
       sourceType: 'module',
     });
