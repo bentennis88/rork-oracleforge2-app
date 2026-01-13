@@ -1,9 +1,8 @@
 module.exports = function (api) {
   api.cache(true);
   return {
-    // Expo projects should use `babel-preset-expo` unless you also install and manage
-    // all referenced presets/plugins yourself. The previous config caused Metro bundling
-    // to fail with missing plugin errors (e.g. @babel/plugin-proposal-class-properties).
+    // Expo/Metro expects `babel-preset-expo` in most projects. Custom plugin stacks
+    // require installing all referenced presets/plugins, otherwise bundling fails.
     presets: [['babel-preset-expo', { unstable_transformImportMeta: true }]],
   };
 };
