@@ -607,6 +607,47 @@ const cleanAiGeneratedCode = (input: string, promptText: string): string => {
     })
     .join('\n');
 
+  // Fix unterminated string literals (very common in AI output), especially hex colors like "#22c55e".
+  // We keep this conservative: only touch common color-ish props and only when the line has an odd quote count.
+  const fixUnterminatedStrings = (src: string): string => {
+    const colorPropRe =
+      /^\s*(backgroundColor|borderColor|color|tintColor|shadowColor)\s*:\s*/;
+
+    return src
+      .split('\n')
+      .map(line => {
+        if (!colorPropRe.test(line)) return line;
+
+        const singleQuotes = (line.match(/'/g) || []).length;
+        const doubleQuotes = (line.match(/"/g) || []).length;
+
+        const hasHex = line.includes('#');
+        const hasRgba = line.includes('rgba(') || line.includes('rgb(');
+        const hasHsl = line.includes('hsl(') || line.includes('hsla(');
+
+        // If it looks like a quoted color string but missing the closing quote.
+        if ((hasHex || hasRgba || hasHsl) && singleQuotes % 2 === 1) {
+          // Insert quote before trailing comma if present, otherwise append.
+          if (line.trimEnd().endsWith(',')) {
+            return line.replace(/,\s*$/, "',");
+          }
+          return line + "'";
+        }
+
+        if ((hasHex || hasRgba || hasHsl) && doubleQuotes % 2 === 1) {
+          if (line.trimEnd().endsWith(',')) {
+            return line.replace(/,\s*$/, '",');
+          }
+          return line + '"';
+        }
+
+        return line;
+      })
+      .join('\n');
+  };
+
+  code = fixUnterminatedStrings(code);
+
   // Add semicolons for common statement endings (very conservative)
   code = code.replace(/(\bconst\b|\blet\b|\bvar\b)[^\n;]+(\n)/g, (m) => {
     if (m.includes(';')) return m;
@@ -621,6 +662,14 @@ const cleanAiGeneratedCode = (input: string, promptText: string): string => {
   const diff = open - close;
   if (diff > 0 && diff <= 3) {
     code = code + '\n' + Array(diff).fill('}').join('\n');
+  }
+
+  // Naively balance parentheses at EOF if missing a small number (common truncation issue).
+  const openParens = (code.match(/\(/g) || []).length;
+  const closeParens = (code.match(/\)/g) || []).length;
+  const parenDiff = openParens - closeParens;
+  if (parenDiff > 0 && parenDiff <= 2) {
+    code = code + '\n' + Array(parenDiff).fill(')').join('\n');
   }
 
   // Fix a very common AI mistake inside StyleSheet.create({ ... }):
@@ -753,6 +802,28 @@ const buildAutoFixFeedback = (errorMessage: string): string => {
   }
   return hint;
 };
+
+const extractLineFromError = (errorMessage: string): number | undefined => {
+  const msg = (errorMessage || '').toString();
+  const m =
+    msg.match(/at\s+(\d+):(\d+)/) ||
+    msg.match(/\((\d+):(\d+)\)/) ||
+    msg.match(/:(\d+):(\d+)/);
+  if (!m) return undefined;
+  const line = Number(m[1]);
+  return Number.isFinite(line) ? line : undefined;
+};
+
+const getLineSnippet = (code: string, line?: number): string => {
+  if (!line || line < 1) return '';
+  const lines = (code || '').split('\n');
+  const idx = line - 1;
+  if (idx < 0 || idx >= lines.length) return '';
+  const snippet = lines[idx] ?? '';
+  return snippet.trim().slice(0, 200);
+};
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const transpileCode = (code: string, promptText: string): { transpiled: string; cleaned: string } => {
   try {
@@ -1152,6 +1223,7 @@ export default function DynamicOracleRenderer({
           console.error('[DynamicRenderer] Failed to create component:', err);
           const errorMessage = err instanceof Error ? err.message : String(err);
           const errorName = err instanceof Error ? err.name : '';
+          console.log('[DynamicRenderer] Full error message:', errorMessage);
 
           const looksLikeTranspileOrSyntax =
             errorMessage.includes('Transpilation failed') ||
@@ -1162,19 +1234,33 @@ export default function DynamicOracleRenderer({
           const autoFixKey = `${code.length}:${code.slice(0, 80)}`;
           const attempts = autoFixAttemptedRef.current[autoFixKey] || 0;
 
-          if (looksLikeTranspileOrSyntax && attempts < 3) {
+          if (looksLikeTranspileOrSyntax && attempts < 5) {
             // Use the cleaned code that Babel is actually trying to compile.
             // This makes the fix request much more deterministic.
             const cleanedForFix = cleanAiGeneratedCode(code, promptText);
             let current = cleanedForFix;
             let lastErrMsg = errorMessage;
 
-            for (let i = attempts; i < 3; i++) {
+            for (let i = attempts; i < 5; i++) {
               autoFixAttemptedRef.current[autoFixKey] = i + 1;
               console.log('[DynamicRenderer] Attempting auto-fix via Grok (syntax repair)... attempt', i + 1);
 
               try {
-                const feedback = buildAutoFixFeedback(lastErrMsg);
+                const line = extractLineFromError(lastErrMsg);
+                const snippet = getLineSnippet(current, line);
+                const base = buildAutoFixFeedback(lastErrMsg);
+
+                let extraHint = '';
+                if (snippet) {
+                  // Provide a concrete snippet to guide the model.
+                  extraHint = ` Error near line ${line}: "${snippet}".`;
+                  // If it looks like a missing quote in a hex color, call it out explicitly.
+                  if (snippet.includes('#') && (snippet.match(/'/g) || []).length % 2 === 1) {
+                    extraHint += ` The color string looks unterminated; add the missing closing quote.`;
+                  }
+                }
+
+                const feedback = base + extraHint;
 
                 const fixed = await refineOracleCode(
                   current,
@@ -1214,6 +1300,9 @@ export default function DynamicOracleRenderer({
                 console.error('[DynamicRenderer] Auto-fix failed:', fixErr);
                 // continue to next attempt
               }
+
+              // Backoff to avoid hammering the API and to give time for logs/JS thread.
+              await sleep(2000);
             }
           }
           
