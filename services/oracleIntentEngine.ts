@@ -1,17 +1,17 @@
 import Constants from 'expo-constants';
 import type { OracleConfig } from '@/contexts/OraclesContext';
 
-const ANTHROPIC_API_KEY =
-  Constants.expoConfig?.extra?.EXPO_PUBLIC_ANTHROPIC_API_KEY ||
-  Constants.manifest?.extra?.EXPO_PUBLIC_ANTHROPIC_API_KEY ||
-  Constants.manifest2?.extra?.expoClient?.extra?.EXPO_PUBLIC_ANTHROPIC_API_KEY ||
-  process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
+const XAI_API_KEY =
+  Constants.expoConfig?.extra?.EXPO_PUBLIC_XAI_API_KEY ||
+  Constants.manifest?.extra?.EXPO_PUBLIC_XAI_API_KEY ||
+  Constants.manifest2?.extra?.expoClient?.extra?.EXPO_PUBLIC_XAI_API_KEY ||
+  process.env.EXPO_PUBLIC_XAI_API_KEY;
 
 // Log API key status (first 10 chars only for security)
-if (ANTHROPIC_API_KEY) {
-  console.log('[OracleIntentEngine] API Key found:', ANTHROPIC_API_KEY.substring(0, 10) + '...');
+if (XAI_API_KEY) {
+  console.log('[OracleIntentEngine] xAI API Key found:', XAI_API_KEY.substring(0, 10) + '...');
 } else {
-  console.error('[OracleIntentEngine] No API key found!');
+  console.error('[OracleIntentEngine] No xAI API key found!');
 }
 
 const SYSTEM_PROMPT = `You are an "Oracle Intent Engine" that translates user input into structured oracle configurations.
@@ -71,41 +71,44 @@ User: "Calculate compound interest on savings"
 → {"type":"calculator","formula":"principal * (1 + rate/100) ^ years","inputs":[{"key":"principal","label":"Principal ($)"},{"key":"rate","label":"Interest Rate (%)"},{"key":"years","label":"Years"}]}
 `;
 
-async function callAnthropicAPI(userPrompt: string): Promise<string> {
-  if (!ANTHROPIC_API_KEY) {
-    throw new Error('Anthropic API key not found. Check your .env file.');
+async function callGrokAPI(userPrompt: string): Promise<string> {
+  if (!XAI_API_KEY) {
+    throw new Error('xAI API key not found. Check your .env file.');
   }
 
   console.log('[OracleIntentEngine] Generating config for:', userPrompt);
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetch('https://api.x.ai/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
+      'Authorization': `Bearer ${XAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'claude-3-sonnet-20240229',
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
+      model: 'grok-beta',
       messages: [
+        {
+          role: 'system',
+          content: SYSTEM_PROMPT,
+        },
         {
           role: 'user',
           content: userPrompt,
         },
       ],
+      temperature: 0.7,
+      max_tokens: 1024,
     }),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
     console.error('[OracleIntentEngine] API error:', errorText);
-    throw new Error(`Anthropic API error: ${response.status}`);
+    throw new Error(`xAI API error: ${response.status}`);
   }
 
   const data = await response.json();
-  const text = data.content?.[0]?.text || '';
+  const text = data.choices?.[0]?.message?.content || '';
   console.log('[OracleIntentEngine] Raw response:', text);
   return text;
 }
@@ -158,7 +161,7 @@ export async function generateOracleConfig(userPrompt: string): Promise<OracleCo
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const rawResponse = await callAnthropicAPI(userPrompt);
+      const rawResponse = await callGrokAPI(userPrompt);
       const cleanedResponse = cleanJsonResponse(rawResponse);
 
       console.log('[OracleIntentEngine] Cleaned response:', cleanedResponse);
