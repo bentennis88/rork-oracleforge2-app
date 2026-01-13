@@ -50,6 +50,7 @@ import { BarChart, PieChart, LineChart } from 'react-native-chart-kit';
 import colors from '@/constants/colors';
 import firebaseService from '@/services/firebaseService';
 import { refineOracleCode } from '@/services/grokApi';
+import SlotOracleRenderer, { SlotTemplate } from '@/components/SlotOracleRenderer';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -134,6 +135,20 @@ const stripMarkdownCodeFences = (input: string): string => {
   }
 
   return s;
+};
+
+const tryParseSlotTemplate = (raw: string): SlotTemplate | null => {
+  const s = stripMarkdownCodeFences(raw).trim();
+  if (!s.startsWith('{') || !s.endsWith('}')) return null;
+  try {
+    const parsed = JSON.parse(s);
+    if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).stats)) {
+      return parsed as SlotTemplate;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 };
 
 // Stage 2: Deterministic JSX Auto-Repair (run before Grok auto-fix).
@@ -1267,9 +1282,20 @@ export default function DynamicOracleRenderer({
   
   const accent = config?.accentColor || '#0AFFE6';
   const promptText = (config?.description || config?.name || '').toString();
+  const slotTemplate = useMemo(() => tryParseSlotTemplate(code), [code]);
 
   useEffect(() => {
     let cancelled = false;
+
+    // If this is a Slot Template JSON, bypass dynamic transpile/eval entirely.
+    if (slotTemplate) {
+      setGeneratedComponent(null);
+      setError(null);
+      setIsLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
 
     if (!code || code.length < 50) {
       console.log('[DynamicRenderer] No valid code provided, using fallback');
@@ -1415,7 +1441,7 @@ export default function DynamicOracleRenderer({
       cancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [code, onError]);
+  }, [code, onError, promptText, slotTemplate]);
 
   if (isLoading) {
     return (
@@ -1430,6 +1456,20 @@ export default function DynamicOracleRenderer({
     return (
       <View style={styles.container}>
         <ErrorDisplay error={error} />
+      </View>
+    );
+  }
+
+  if (slotTemplate) {
+    return (
+      <View style={styles.container}>
+        <SlotOracleRenderer
+          template={slotTemplate}
+          userId={userId}
+          oracleId={oracleId}
+          data={data}
+          logs={logs}
+        />
       </View>
     );
   }
