@@ -196,81 +196,95 @@ const createExecutionContext = () => {
 const createOracleComponent = (code: string) => {
   try {
     console.log('[DynamicOracle] Creating component, code length:', code.length);
-    
+
     if (!code || code.length < 50) {
       console.log('[DynamicOracle] Code too short, skipping');
       return null;
     }
-    
+
     if (!code.includes('import') && !code.includes('export')) {
       throw new Error('Invalid component: missing imports or export statement');
     }
-    
+
     console.log('[DynamicOracle] Transpiling code with Babel...');
     const transpiled = transpileCode(code);
-    
+
     if (!transpiled) {
       throw new Error('Transpilation failed: empty output');
     }
-    
+
     console.log('[DynamicOracle] Transpiled code preview:', transpiled.substring(0, 200));
-    
+
     const context = createExecutionContext();
-    const module = { exports: {} };
+
+    // Create module structure
+    const module = { exports: {} as any };
+    const exports = module.exports;
     const require = (name: string) => {
       if (name === 'react') return React;
-      if (name === 'react-native') return {
-        View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView,
-        Alert, Platform, Share, Dimensions, FlatList, Switch, Modal,
-        Animated, ActivityIndicator
-      };
+      if (name === 'react-native')
+        return {
+          View,
+          Text,
+          StyleSheet,
+          TouchableOpacity,
+          TextInput,
+          ScrollView,
+          Alert,
+          Platform,
+          Share,
+          Dimensions,
+          FlatList,
+          Switch,
+          Modal,
+          Animated,
+          ActivityIndicator,
+        };
       if (name === '@react-native-async-storage/async-storage') return AsyncStorage;
       if (name === 'expo-notifications') return Notifications;
       if (name === 'react-native-chart-kit') return { BarChart, PieChart, LineChart };
       if (name === 'lucide-react-native') return context;
       throw new Error(`Module not found: ${name}`);
     };
-    
-    const executor = new Function(
-      'module',
-      'exports',
-      'require',
-      ...Object.keys(context),
-      `
-      ${transpiled}
-      return module.exports.default || module.exports;
-      `
-    );
-    
+
+    // Use eval instead of new Function to support async/await
+    // Wrap in an IIFE to create proper scope
+    const evalCode = `
+      (function(module, exports, require, ${Object.keys(context).join(', ')}) {
+        ${transpiled}
+        return module.exports.default || module.exports;
+      })
+    `;
+
     console.log('[DynamicOracle] Executing component code...');
-    const LoadedComponent = executor(
-      module,
-      module.exports,
-      require,
-      ...Object.values(context)
-    );
-    
+
+    // Execute the code with eval (safe because we control the source via AI)
+    const componentFactory = eval(evalCode) as any;
+    const LoadedComponent = componentFactory(module, exports, require, ...Object.values(context));
+
     if (!LoadedComponent) {
       throw new Error('No component exported from code');
     }
-    
+
     if (typeof LoadedComponent !== 'function') {
       throw new Error('Exported value is not a valid React component');
     }
-    
+
     console.log('[DynamicOracle] ✅ Component created successfully');
     return LoadedComponent;
   } catch (error) {
     console.error('[DynamicOracle] ❌ Error creating component:', error);
-    
+
     const errorMsg = error instanceof Error ? error.message : String(error);
     const errorName = error instanceof Error ? error.name : '';
-    
-    if (errorMsg.includes('sandbox') || 
-        errorMsg.includes('timeout') || 
-        errorMsg.includes('TimeoutError') || 
-        errorMsg.includes('not found') ||
-        errorName === 'TimeoutError') {
+
+    if (
+      errorMsg.includes('sandbox') ||
+      errorMsg.includes('timeout') ||
+      errorMsg.includes('TimeoutError') ||
+      errorMsg.includes('not found') ||
+      errorName === 'TimeoutError'
+    ) {
       console.log('[DynamicOracle] Ignoring external service error, using fallback');
       return null;
     } else if (error instanceof SyntaxError) {
@@ -280,7 +294,7 @@ const createOracleComponent = (code: string) => {
     } else if (error instanceof TypeError) {
       throw new Error(`Type Error: ${error.message}`);
     }
-    
+
     throw error;
   }
 };
