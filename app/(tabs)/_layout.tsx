@@ -47,7 +47,7 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="create"
+        name="createOracle"
         options={{
           title: "Create",
           tabBarIcon: ({ color, size }) => <Plus size={size} color={color} />,

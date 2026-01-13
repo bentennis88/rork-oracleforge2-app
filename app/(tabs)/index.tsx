@@ -15,13 +15,12 @@ import { useRouter } from 'expo-router';
 import { 
   Hexagon, Plus, Search, X, 
   Activity, Calculator, ListTodo, Bell, DollarSign, Heart, Briefcase, Box,
-  RefreshCw, Sparkles, Wand2,
+  RefreshCw, Sparkles, Wand2, FileText,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { useOracleStore } from '@/oracles/OracleStore';
-import OracleCard from '@/components/OracleCard';
+import { useOracles, Oracle } from '@/contexts/OraclesContext';
 import Onboarding from '@/components/Onboarding';
 
 const categories: { key: string; label: string; icon: React.ComponentType<{ size: number; color: string }> }[] = [
@@ -29,12 +28,13 @@ const categories: { key: string; label: string; icon: React.ComponentType<{ size
   { key: 'tracker', label: 'Trackers', icon: Activity },
   { key: 'calculator', label: 'Calculators', icon: Calculator },
   { key: 'reminder', label: 'Reminders', icon: Bell },
+  { key: 'other', label: 'Other', icon: FileText },
 ];
 
 export default function DashboardScreen() {
   const router = useRouter();
   const { user, isAuthenticated, hasCompletedOnboarding, completeOnboarding, isPro } = useAuth();
-  const { oracles, deleteOracle } = useOracleStore();
+  const { oracles, deleteOracle } = useOracles();
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -46,14 +46,15 @@ export default function DashboardScreen() {
     let result = oracles;
     
     if (selectedCategory !== 'all') {
-      result = result.filter(o => String((o as any).type || (o as any)?.config?.type || '') === selectedCategory);
+      result = result.filter(o => o.category.toLowerCase() === selectedCategory.toLowerCase());
     }
     
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter(o => 
-        String((o as any)?.config?.title || '').toLowerCase().includes(query) ||
-        String((o as any)?.config?.description || '').toLowerCase().includes(query)
+        o.title.toLowerCase().includes(query) ||
+        o.category.toLowerCase().includes(query) ||
+        o.content.toLowerCase().includes(query)
       );
     }
     
@@ -63,8 +64,8 @@ export default function DashboardScreen() {
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = { all: oracles.length };
     oracles.forEach(o => {
-      const t = String((o as any).type || (o as any)?.config?.type || 'tracker');
-      counts[t] = (counts[t] || 0) + 1;
+      const cat = o.category.toLowerCase();
+      counts[cat] = (counts[cat] || 0) + 1;
     });
     return counts;
   }, [oracles]);
@@ -74,9 +75,9 @@ export default function DashboardScreen() {
     setTimeout(() => setRefreshing(false), 1000);
   }, []);
 
-  const handleOraclePress = (oracleId: string) => {
+  const handleOraclePress = (oracle: Oracle) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push(`/oracle/${oracleId}` as const);
+    router.push(`/refineOracle?oracleId=${oracle.id}` as const);
   };
 
   const handleDeleteOracle = (oracleId: string) => {
@@ -122,8 +123,6 @@ export default function DashboardScreen() {
     ]).start(() => setToast({ visible: false, message: '' }));
   }, [toastAnim]);
 
-  // AI refinement has been disabled (no runtime transpile/eval).
-
   if (!hasCompletedOnboarding) {
     return <Onboarding onComplete={completeOnboarding} />;
   }
@@ -137,7 +136,7 @@ export default function DashboardScreen() {
           </View>
           <Text style={styles.emptyTitle}>Welcome to OracleForge</Text>
           <Text style={styles.emptyText}>
-            Build custom tools, trackers, and utilities using natural language
+            Create custom oracles for any purpose
           </Text>
           <TouchableOpacity 
             style={styles.signInButton}
@@ -242,11 +241,11 @@ export default function DashboardScreen() {
             </View>
             <Text style={styles.emptyOraclesTitle}>No Oracles Yet</Text>
             <Text style={styles.emptyOraclesText}>
-              Describe any tool in natural language and I&apos;ll build it for you
+              Create your first oracle to get started
             </Text>
             <TouchableOpacity 
               style={styles.createButton}
-              onPress={() => router.push('/(tabs)/create')}
+              onPress={() => router.push('/(tabs)/createOracle')}
             >
               <Plus size={18} color={colors.background} />
               <Text style={styles.createButtonText}>Create Oracle</Text>
@@ -263,12 +262,27 @@ export default function DashboardScreen() {
         ) : (
           <View style={styles.oraclesList}>
             {filteredOracles.map(oracle => (
-              <OracleCard
+              <TouchableOpacity
                 key={oracle.id}
-                oracle={oracle}
-                onPress={() => handleOraclePress(oracle.id)}
-                onDelete={() => handleDeleteOracle(oracle.id)}
-              />
+                style={styles.oracleCard}
+                onPress={() => handleOraclePress(oracle)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.oracleCardHeader}>
+                  <Text style={styles.oracleCardTitle}>{oracle.title}</Text>
+                  <TouchableOpacity
+                    onPress={() => handleDeleteOracle(oracle.id)}
+                    style={styles.deleteButton}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <X size={18} color={colors.error} />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.oracleCardCategory}>{oracle.category}</Text>
+                <Text style={styles.oracleCardContent} numberOfLines={2}>
+                  {oracle.content}
+                </Text>
+              </TouchableOpacity>
             ))}
           </View>
         )}
@@ -514,84 +528,42 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   oraclesList: {
-    gap: 0,
+    gap: 12,
   },
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalContent: {
+  oracleCard: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 24,
-    width: '100%',
-    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    borderRadius: 12,
+    padding: 16,
   },
-  modalHeader: {
+  oracleCardHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 4,
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
   },
-  modalTitle: {
+  oracleCardTitle: {
     fontSize: 18,
     fontWeight: '600' as const,
     color: colors.text,
+    flex: 1,
   },
-  modalSubtitle: {
-    fontSize: 13,
+  deleteButton: {
+    padding: 4,
+  },
+  oracleCardCategory: {
+    fontSize: 12,
+    color: colors.accent,
+    fontWeight: '500' as const,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  oracleCardContent: {
+    fontSize: 14,
     color: colors.textSecondary,
-    marginBottom: 20,
-  },
-  refineInput: {
-    backgroundColor: colors.inputBackground,
-    borderWidth: 1,
-    borderColor: colors.inputBorder,
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 14,
-    color: colors.text,
-    minHeight: 100,
-    textAlignVertical: 'top',
-    marginBottom: 20,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
-  },
-  modalCancelButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  modalCancelText: {
-    fontSize: 14,
-    color: colors.textMuted,
-  },
-  modalSubmitButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.accent,
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-  },
-  modalSubmitText: {
-    fontSize: 14,
-    color: colors.background,
-    fontWeight: '600' as const,
-  },
-  buttonDisabled: {
-    opacity: 0.5,
+    lineHeight: 20,
   },
   toast: {
     position: 'absolute',
