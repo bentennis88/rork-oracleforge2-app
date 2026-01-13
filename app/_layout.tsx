@@ -5,7 +5,7 @@ import React, { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { OraclesProvider } from "@/oracles/OracleStore";
+import { OraclesProvider } from "@/contexts/OraclesContext";
 import CustomSplashScreen from "@/components/SplashScreen";
 import colors from "@/constants/colors";
 
