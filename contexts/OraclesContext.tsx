@@ -1,45 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
-export type TrackerOracleConfig = {
-  type: 'tracker';
-  id: string;
-  title: string;
-  metric: string;
-  unit: string;
-  dailyGoal: number;
-  incrementOptions?: number[];
-  chartWindowDays?: number;
-};
-
-export type ReminderOracleConfig = {
-  type: 'reminder';
-  id: string;
-  title: string;
-  message: string;
-  startHour: number;
-  endHour: number;
-  intervalMinutes: number;
-};
-
-export type CalculatorOracleConfig = {
-  type: 'calculator';
-  id: string;
-  title: string;
-  formula: string;
-  inputs: { key: string; label: string }[];
-};
-
-export type OracleConfig =
-  | TrackerOracleConfig
-  | ReminderOracleConfig
-  | CalculatorOracleConfig;
-
 export interface Oracle {
   id: string;
   title: string;
-  config: OracleConfig;
-  data: any;
+  description?: string;
+  generatedCode: string; // AI-generated React Native component code
+  createdAt: number;
+  updatedAt: number;
 }
 
 interface OraclesContextType {
@@ -61,19 +29,19 @@ export const OraclesProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (stored) {
           const parsed = JSON.parse(stored);
           
-          // Migrate old oracles or filter them out
+          // Filter valid oracles with generated code
           const validOracles = Array.isArray(parsed)
             ? parsed.filter((o: any) => {
-                // Check if oracle has the new config structure
-                if (o.config && typeof o.config === 'object' && o.config.type) {
+                // New format: has generatedCode
+                if (o.generatedCode && typeof o.generatedCode === 'string') {
                   return true;
                 }
-                console.warn('[OraclesContext] Filtering out invalid oracle (old format):', o.id);
+                console.warn('[OraclesContext] Filtering out invalid oracle:', o.id);
                 return false;
               })
             : [];
           
-          console.log(`[OraclesContext] Loaded ${validOracles.length} valid oracles (filtered ${parsed.length - validOracles.length} old format)`);
+          console.log(`[OraclesContext] Loaded ${validOracles.length} oracles`);
           setOracles(validOracles);
         }
       } catch (error) {

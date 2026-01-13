@@ -31,21 +31,7 @@ const categories: { key: string; label: string; icon: React.ComponentType<{ size
 ];
 
 function getOracleDescription(oracle: Oracle): string {
-  const { config } = oracle;
-  
-  if (config.type === 'tracker') {
-    return `Track ${config.metric} (${config.dailyGoal} ${config.unit}/day)`;
-  }
-  
-  if (config.type === 'reminder') {
-    return `${config.message} (every ${Math.floor(config.interval / 60)}h)`;
-  }
-  
-  if (config.type === 'calculator') {
-    return `Calculate: ${config.inputs.map(i => i.label).join(', ')}`;
-  }
-  
-  return 'Oracle';
+  return oracle.description || 'AI-generated mini-app';
 }
 
 export default function DashboardScreen() {
@@ -60,33 +46,27 @@ export default function DashboardScreen() {
   const toastAnim = useRef(new Animated.Value(0)).current;
 
   const filteredOracles = useMemo(() => {
-    // Filter out any invalid oracles without config
-    let result = oracles.filter(o => o.config && o.config.type);
+    // Filter out any invalid oracles without generated code
+    let result = oracles.filter(o => o.generatedCode);
     
-    if (selectedCategory !== 'all') {
-      result = result.filter(o => o.config.type === selectedCategory);
-    }
+    // For now, ignore category filtering since we don't have type info
+    // We can add AI-based categorization later if needed
     
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter(o => 
         o.title.toLowerCase().includes(query) ||
-        getOracleDescription(o).toLowerCase().includes(query)
+        (o.description && o.description.toLowerCase().includes(query))
       );
     }
     
     return result;
-  }, [oracles, selectedCategory, searchQuery]);
+  }, [oracles, searchQuery]);
 
   const categoryCounts = useMemo(() => {
-    // Only count valid oracles with config
-    const validOracles = oracles.filter(o => o.config && o.config.type);
-    const counts: Record<string, number> = { all: validOracles.length };
-    validOracles.forEach(o => {
-      const type = o.config.type;
-      counts[type] = (counts[type] || 0) + 1;
-    });
-    return counts;
+    // Only count valid oracles with generated code
+    const validOracles = oracles.filter(o => o.generatedCode);
+    return { all: validOracles.length };
   }, [oracles]);
 
   const onRefresh = useCallback(() => {
@@ -220,38 +200,6 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          style={styles.categoriesScroll}
-          contentContainerStyle={styles.categoriesContent}
-        >
-          {categories.map(cat => {
-            const isSelected = selectedCategory === cat.key;
-            const count = categoryCounts[cat.key] || 0;
-            const IconComp = cat.icon;
-            return (
-              <TouchableOpacity
-                key={cat.key}
-                style={[styles.categoryChip, isSelected && styles.categoryChipActive]}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setSelectedCategory(cat.key);
-                }}
-              >
-                <IconComp size={14} color={isSelected ? colors.background : colors.textSecondary} />
-                <Text style={[styles.categoryChipText, isSelected && styles.categoryChipTextActive]}>
-                  {cat.label}
-                </Text>
-                {count > 0 && (
-                  <View style={[styles.countBadge, isSelected && styles.countBadgeActive]}>
-                    <Text style={[styles.countText, isSelected && styles.countTextActive]}>{count}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
 
         {oracles.length === 0 ? (
           <View style={styles.emptyOracles}>
@@ -260,7 +208,7 @@ export default function DashboardScreen() {
             </View>
             <Text style={styles.emptyOraclesTitle}>No Oracles Yet</Text>
             <Text style={styles.emptyOraclesText}>
-              Describe any tool in natural language and AI will build it for you
+              Describe any mini-app in natural language and AI will code it for you
             </Text>
             <TouchableOpacity 
               style={styles.createButton}
@@ -297,14 +245,11 @@ export default function DashboardScreen() {
                     <X size={18} color={colors.error} />
                   </TouchableOpacity>
                 </View>
-                <View style={styles.oracleCardTypeRow}>
-                  {oracle.config.type === 'tracker' && <Activity size={14} color={colors.accent} />}
-                  {oracle.config.type === 'reminder' && <Bell size={14} color={colors.accent} />}
-                  {oracle.config.type === 'calculator' && <Calculator size={14} color={colors.accent} />}
-                  <Text style={styles.oracleCardType}>{oracle.config.type.toUpperCase()}</Text>
-                </View>
                 <Text style={styles.oracleCardDescription} numberOfLines={2}>
                   {getOracleDescription(oracle)}
+                </Text>
+                <Text style={styles.oracleCardMeta}>
+                  Created {new Date(oracle.createdAt).toLocaleDateString()}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -576,22 +521,15 @@ const styles = StyleSheet.create({
   deleteButton: {
     padding: 4,
   },
-  oracleCardTypeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 8,
-  },
-  oracleCardType: {
-    fontSize: 11,
-    color: colors.accent,
-    fontWeight: '700' as const,
-    letterSpacing: 0.5,
-  },
   oracleCardDescription: {
     fontSize: 14,
     color: colors.textSecondary,
     lineHeight: 20,
+    marginBottom: 8,
+  },
+  oracleCardMeta: {
+    fontSize: 11,
+    color: colors.textMuted,
   },
   toast: {
     position: 'absolute',

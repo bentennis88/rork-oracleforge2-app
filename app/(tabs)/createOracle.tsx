@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useOracles, Oracle } from '@/contexts/OraclesContext';
-import { generateOracleConfig } from '@/services/oracleIntentEngine';
+import { generateOracleCode } from '@/services/oracleCodeGenerator';
 import colors from '@/constants/colors';
 import { Sparkles, Home, Edit3, Wand2 } from 'lucide-react-native';
 
@@ -36,22 +36,21 @@ export default function CreateOracleScreen() {
 
       console.log('[CreateOracle] Sending prompt to AI:', prompt);
 
-      // Call AI Intent Engine to generate structured config
-      const config = await generateOracleConfig(prompt);
+      // Call AI Code Generator to generate full React Native component
+      const generatedCode = await generateOracleCode(prompt);
 
-      console.log('[CreateOracle] Received config:', config);
+      console.log('[CreateOracle] Received code, length:', generatedCode.length);
 
-      // Create oracle with AI-generated config
+      // Create oracle with AI-generated code
       const oracleId = generateId();
+      const now = Date.now();
       const newOracle: Oracle = {
         id: oracleId,
-        title: config.title || title.trim(), // Use AI-generated title if available
-        config: {
-          ...config,
-          id: oracleId, // Ensure config has the oracle ID
-          title: config.title || title.trim(), // Ensure config has title
-        } as OracleConfig,
-        data: {}, // Empty data object for runtime state
+        title: title.trim(),
+        description: description.trim() || undefined,
+        generatedCode,
+        createdAt: now,
+        updatedAt: now,
       };
 
       addOracle(newOracle);
@@ -92,9 +91,9 @@ export default function CreateOracleScreen() {
             <View style={styles.header}>
               <Wand2 size={32} color={colors.accent} />
               <Text style={styles.title}>Create Oracle</Text>
-              <Text style={styles.subtitle}>
-                Describe what you want in natural language - AI will generate a structured oracle
-              </Text>
+          <Text style={styles.subtitle}>
+            Describe what you want in natural language - AI will generate a custom mini-app
+          </Text>
             </View>
 
             <View style={styles.form}>
@@ -142,10 +141,10 @@ export default function CreateOracleScreen() {
 
               <View style={styles.examplesCard}>
                 <Text style={styles.examplesTitle}>💡 Example prompts:</Text>
-                <Text style={styles.exampleText}>• Track my daily water intake</Text>
-                <Text style={styles.exampleText}>• Remind me to take medicine every 8 hours</Text>
-                <Text style={styles.exampleText}>• Calculate compound interest on savings</Text>
-                <Text style={styles.exampleText}>• Track my workout streak</Text>
+                <Text style={styles.exampleText}>• Track my daily water intake with quick add buttons and a chart</Text>
+                <Text style={styles.exampleText}>• Hockey shift tracker with timer for each period</Text>
+                <Text style={styles.exampleText}>• Grocery shopping list with categories and checkboxes</Text>
+                <Text style={styles.exampleText}>• Workout tracker with exercise sets and rest timer</Text>
               </View>
             </View>
           </>
@@ -154,7 +153,7 @@ export default function CreateOracleScreen() {
             <View style={styles.successHeader}>
               <Sparkles size={48} color={colors.success} />
               <Text style={styles.successTitle}>Oracle Created!</Text>
-              <Text style={styles.successText}>Your AI-generated oracle is ready to use</Text>
+              <Text style={styles.successText}>Your custom mini-app is ready to use</Text>
             </View>
 
             <View style={styles.buttonContainer}>
