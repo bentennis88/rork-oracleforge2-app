@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { 
   Zap, Target, TrendingUp, Clock, BarChart3, Activity, 
@@ -48,44 +48,10 @@ interface OracleCardProps {
   onRefine?: () => void;
 }
 
-const extractPreviewIcon = (code: string): React.ComponentType<{ size: number; color: string }> | null => {
-  const iconPatterns: [RegExp, React.ComponentType<{ size: number; color: string }>][] = [
-    [/ShoppingCart/i, ShoppingCart],
-    [/Droplet/i, Droplet],
-    [/Dumbbell/i, Dumbbell],
-    [/PieChart/i, PieChart],
-    [/Wallet/i, Wallet],
-    [/CheckSquare/i, CheckSquare],
-    [/Calculator/i, Calculator],
-    [/Bell/i, Bell],
-    [/Heart/i, Heart],
-    [/TrendingUp/i, TrendingUp],
-    [/BarChart/i, BarChart3],
-    [/DollarSign/i, DollarSign],
-    [/Clock/i, Clock],
-    [/Flame/i, Flame],
-    [/Star/i, Star],
-    [/Coffee/i, Coffee],
-    [/Moon/i, Moon],
-    [/Sun/i, Sun],
-  ];
-  
-  for (const [pattern, icon] of iconPatterns) {
-    if (pattern.test(code)) {
-      return icon;
-    }
-  }
-  
-  return null;
-};
-
 export default function OracleCard({ oracle, onPress, onDelete, onRefine }: OracleCardProps) {
   const IconComponent = iconMap[oracle.icon] || Zap;
   const CategoryIcon = categoryIcons[oracle.category || 'other'];
-  
-  const PreviewIcon = useMemo(() => {
-    return extractPreviewIcon(oracle.generatedCode) || IconComponent;
-  }, [oracle.generatedCode, IconComponent]);
+  const PreviewIcon = CategoryIcon || IconComponent;
   
   const formatDate = (timestamp: number) => {
     const date = new Date(timestamp);

@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   TextInput,
   Animated,
-  Easing,
   Alert,
   Platform,
 } from 'react-native';
@@ -25,7 +24,6 @@ import { useOracles } from '@/contexts/OracleContext';
 import OracleCard from '@/components/OracleCard';
 import Onboarding from '@/components/Onboarding';
 import { OracleCategory, Oracle } from '@/types';
-import { streamingLikeGeneration, buildConversationHistory } from '@/utils/claudeService';
 
 const categories: { key: OracleCategory | 'all'; label: string; icon: React.ComponentType<{ size: number; color: string }> }[] = [
   { key: 'all', label: 'All', icon: Box },
@@ -41,16 +39,12 @@ const categories: { key: OracleCategory | 'all'; label: string; icon: React.Comp
 export default function DashboardScreen() {
   const router = useRouter();
   const { user, isAuthenticated, hasCompletedOnboarding, completeOnboarding, isPro } = useAuth();
-  const { oracles, deleteOracle, updateOracle } = useOracles();
+  const { oracles, deleteOracle } = useOracles();
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<OracleCategory | 'all'>('all');
-  const [refineModal, setRefineModal] = useState<{ visible: boolean; oracle: Oracle | null }>({ visible: false, oracle: null });
-  const [refineFeedback, setRefineFeedback] = useState('');
-  const [isRefining, setIsRefining] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: '' });
 
-  const spinAnim = useRef(new Animated.Value(0)).current;
   const toastAnim = useRef(new Animated.Value(0)).current;
 
   const filteredOracles = useMemo(() => {
@@ -134,69 +128,7 @@ export default function DashboardScreen() {
     ]).start(() => setToast({ visible: false, message: '' }));
   }, [toastAnim]);
 
-  const handleRefineOracle = (oracle: Oracle) => {
-    setRefineModal({ visible: true, oracle });
-    setRefineFeedback('');
-  };
-
-  const submitRefine = async () => {
-    if (!refineFeedback.trim() || isRefining || !refineModal.oracle) return;
-
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setIsRefining(true);
-
-    Animated.loop(
-      Animated.timing(spinAnim, {
-        toValue: 1,
-        duration: 1200,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      })
-    ).start();
-
-    try {
-      const oracle = refineModal.oracle;
-      const conversationHistory = oracle.conversationHistory || [];
-      const messages = buildConversationHistory(conversationHistory);
-
-      console.log('[Dashboard] Refining oracle:', oracle.id);
-
-      const result = await streamingLikeGeneration(
-        refineFeedback,
-        messages,
-        oracle.generatedCode
-      );
-
-      const updatedHistory = [
-        ...conversationHistory,
-        { role: 'user' as const, content: refineFeedback },
-        { role: 'assistant' as const, content: `Updated: ${result.description}` },
-      ];
-
-      await updateOracle(oracle.id, { 
-        generatedCode: result.code,
-        conversationHistory: updatedHistory,
-        color: result.accentColor,
-      });
-      
-      setRefineModal({ visible: false, oracle: null });
-      setRefineFeedback('');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      showToast('Oracle refined');
-    } catch (error) {
-      console.log('Error refining oracle:', error);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      showToast('Failed to refine');
-    } finally {
-      setIsRefining(false);
-      spinAnim.setValue(0);
-    }
-  };
-
-  const spin = spinAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
+  // AI refinement has been disabled (no runtime transpile/eval).
 
   if (!hasCompletedOnboarding) {
     return <Onboarding onComplete={completeOnboarding} />;
@@ -342,69 +274,11 @@ export default function DashboardScreen() {
                 oracle={oracle}
                 onPress={() => handleOraclePress(oracle.id)}
                 onDelete={() => handleDeleteOracle(oracle.id)}
-                onRefine={() => handleRefineOracle(oracle)}
               />
             ))}
           </View>
         )}
       </ScrollView>
-
-      {refineModal.visible && (
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <RefreshCw size={20} color={colors.accent} />
-              <Text style={styles.modalTitle}>Refine Oracle</Text>
-            </View>
-            <Text style={styles.modalSubtitle}>{refineModal.oracle?.name}</Text>
-            
-            <TextInput
-              style={styles.refineInput}
-              placeholder="Describe what you want to change..."
-              placeholderTextColor={colors.textMuted}
-              value={refineFeedback}
-              onChangeText={setRefineFeedback}
-              multiline
-              numberOfLines={4}
-              autoFocus
-              editable={!isRefining}
-            />
-            
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.modalCancelButton}
-                onPress={() => {
-                  setRefineModal({ visible: false, oracle: null });
-                  setRefineFeedback('');
-                }}
-                disabled={isRefining}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={[
-                  styles.modalSubmitButton,
-                  (!refineFeedback.trim() || isRefining) && styles.buttonDisabled,
-                ]}
-                onPress={submitRefine}
-                disabled={!refineFeedback.trim() || isRefining}
-              >
-                {isRefining ? (
-                  <Animated.View style={{ transform: [{ rotate: spin }] }}>
-                    <Sparkles size={16} color={colors.background} />
-                  </Animated.View>
-                ) : (
-                  <RefreshCw size={16} color={colors.background} />
-                )}
-                <Text style={styles.modalSubmitText}>
-                  {isRefining ? 'Refining...' : 'Apply'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
 
       {toast.visible && (
         <Animated.View 

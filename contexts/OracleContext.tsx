@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Oracle, OracleLog, OracleCategory } from '@/types';
 import { useAuth } from './AuthContext';
+import type { OracleConfig } from '@/oracles/types';
 
 const ORACLES_STORAGE_KEY = '@oracleforge_oracles';
 
@@ -12,6 +13,56 @@ const generateOracleId = () => {
 
 const oracleColors = ['#0AFFE6', '#FF3B5C', '#00FF88', '#FFB800', '#8B5CF6', '#EC4899'];
 const oracleIcons = ['Zap', 'Target', 'TrendingUp', 'Clock', 'BarChart3', 'Activity'];
+
+const buildFallbackConfig = (oracleLike: Partial<Oracle>): OracleConfig => {
+  const title = String(oracleLike.name || 'Oracle');
+  const description = String(oracleLike.prompt || oracleLike.description || '');
+  const typeGuess: 'tracker' | 'reminder' | 'calculator' =
+    oracleLike.category === 'reminder'
+      ? 'reminder'
+      : oracleLike.category === 'calculator'
+        ? 'calculator'
+        : 'tracker';
+
+  if (typeGuess === 'reminder') {
+    return {
+      id: String(oracleLike.id || 'oracle'),
+      title,
+      description,
+      type: 'reminder',
+      message: 'Time to check in',
+      startHour: 8,
+      endHour: 18,
+      intervalMinutes: 60,
+    };
+  }
+
+  if (typeGuess === 'calculator') {
+    return {
+      id: String(oracleLike.id || 'oracle'),
+      title,
+      description,
+      type: 'calculator',
+      inputs: [
+        { key: 'a', label: 'A', defaultValue: 10 },
+        { key: 'b', label: 'B', defaultValue: 5 },
+        { key: 'c', label: 'C', defaultValue: 2 },
+      ],
+      formula: '(a + b + c)',
+    };
+  }
+
+  return {
+    id: String(oracleLike.id || 'oracle'),
+    title,
+    description,
+    type: 'tracker',
+    unit: '',
+    dailyGoal: 10,
+    incrementOptions: [1, 5, 10],
+    chartWindowDays: 7,
+  };
+};
 
 const detectCategory = (prompt: string, name: string): OracleCategory => {
   const text = (prompt + ' ' + name).toLowerCase();
@@ -53,7 +104,16 @@ export const [OracleProvider, useOracles] = createContextHook(() => {
         const stored = await AsyncStorage.getItem(`${ORACLES_STORAGE_KEY}_${user.id}`);
         if (stored) {
           const parsed = JSON.parse(stored) as Oracle[];
-          setOracles(parsed);
+          const migrated = parsed.map((o) => {
+            const anyO = o as any;
+            const cfg: OracleConfig | undefined = anyO?.config;
+            if (cfg && typeof cfg === 'object' && typeof (cfg as any).type === 'string') {
+              // Ensure config.id stays consistent.
+              return { ...o, config: { ...(cfg as any), id: o.id } };
+            }
+            return { ...o, config: buildFallbackConfig(o) };
+          });
+          setOracles(migrated);
         } else {
           setOracles([]);
         }
@@ -67,18 +127,29 @@ export const [OracleProvider, useOracles] = createContextHook(() => {
     loadOracles();
   }, [user?.id]);
 
-  const createOracle = useCallback(async (prompt: string, name: string, generatedCode: string) => {
+  const createOracle = useCallback(async (config: OracleConfig) => {
     const userId = userIdRef.current;
     if (!userId) return null;
     
-    const category = detectCategory(prompt, name);
+    const oracleId = generateOracleId();
+    const title = String((config as any)?.title || 'Oracle');
+    const desc = String((config as any)?.description || '');
+    const normalizedConfig: OracleConfig = { ...(config as any), id: oracleId, title, description: desc };
+    const category: OracleCategory =
+      normalizedConfig.type === 'reminder'
+        ? 'reminder'
+        : normalizedConfig.type === 'calculator'
+          ? 'calculator'
+          : 'tracker';
+
     const newOracle: Oracle = {
-      id: generateOracleId(),
+      id: oracleId,
       userId,
-      name,
-      description: prompt.substring(0, 100),
-      prompt,
-      generatedCode,
+      name: title,
+      description: desc.substring(0, 100),
+      prompt: desc,
+      generatedCode: '',
+      config: normalizedConfig,
       icon: oracleIcons[Math.floor(Math.random() * oracleIcons.length)],
       color: oracleColors[Math.floor(Math.random() * oracleColors.length)],
       category,

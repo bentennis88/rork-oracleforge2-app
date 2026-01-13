@@ -1,3 +1,5 @@
+import type { OracleConfig } from '@/oracles/types';
+
 export interface User {
   id: string;
   email: string;
@@ -23,7 +25,15 @@ export interface Oracle {
   name: string;
   description: string;
   prompt: string;
-  generatedCode: string;
+  /**
+   * Legacy: previously used for AI-generated runtime code execution.
+   * Kept optional for backward compatibility with stored data.
+   */
+  generatedCode?: string;
+  /**
+   * New: fixed, typed config rendered via /oracles/registry.ts (no eval).
+   */
+  config: OracleConfig;
   icon: string;
   color: string;
   category: OracleCategory;

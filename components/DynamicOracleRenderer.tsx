@@ -1,3 +1,37 @@
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import colors from '@/constants/colors';
+
+/**
+ * Dynamic oracle rendering (runtime transpile/eval of AI-generated code) is intentionally disabled.
+ * Rendering is now handled via typed configs + `/oracles/registry.ts` (no eval).
+ */
+export default function DynamicOracleRenderer(_props: any) {
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Dynamic rendering disabled</Text>
+      <Text style={styles.text}>
+        This build does not transpile or execute AI-generated code at runtime. Use `renderOracle(config)` from
+        `oracles/registry.ts`.
+      </Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    borderRadius: 16,
+    padding: 16,
+    justifyContent: 'center',
+  },
+  title: { color: colors.text, fontSize: 16, fontWeight: '900', marginBottom: 8 },
+  text: { color: colors.textMuted, fontSize: 12, fontWeight: '600', lineHeight: 18 },
+});
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import * as Babel from '@babel/standalone';
 import {
