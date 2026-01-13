@@ -61,6 +61,24 @@ Notifications.setNotificationHandler({
   }),
 });
 
+const Parser = (acorn as any).Parser.extend((jsx as any)());
+
+export function validateJSX(code: string) {
+  try {
+    Parser.parse(code, {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+    });
+    return { ok: true as const };
+  } catch (err: any) {
+    return {
+      ok: false as const,
+      message: err?.message || String(err),
+      loc: err?.loc,
+    };
+  }
+}
+
 
 
 interface OracleLog {
@@ -759,22 +777,14 @@ const preValidateWithAcornJsx = (code: string): { ok: true } | { ok: false; mess
     /<\s*[A-Za-z_][A-Za-z0-9_]*\s*>/.test(code); // generic angle brackets
   if (looksLikeTS) return { ok: true };
 
-  try {
-    const Parser = (acorn as any).Parser.extend((jsx as any)());
-    Parser.parse(code, {
-      ecmaVersion: 'latest',
-      sourceType: 'module',
-      allowReturnOutsideFunction: true,
-    });
-    return { ok: true };
-  } catch (e: any) {
-    return {
-      ok: false,
-      message: e?.message || String(e),
-      line: e?.loc?.line,
-      column: e?.loc?.column,
-    };
-  }
+  const result = validateJSX(code);
+  if (result.ok) return { ok: true };
+  return {
+    ok: false,
+    message: result.message,
+    line: result.loc?.line,
+    column: result.loc?.column,
+  };
 };
 
 const buildAutoFixFeedback = (errorMessage: string): string => {
