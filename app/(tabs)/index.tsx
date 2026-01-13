@@ -60,7 +60,8 @@ export default function DashboardScreen() {
   const toastAnim = useRef(new Animated.Value(0)).current;
 
   const filteredOracles = useMemo(() => {
-    let result = oracles;
+    // Filter out any invalid oracles without config
+    let result = oracles.filter(o => o.config && o.config.type);
     
     if (selectedCategory !== 'all') {
       result = result.filter(o => o.config.type === selectedCategory);
@@ -78,8 +79,10 @@ export default function DashboardScreen() {
   }, [oracles, selectedCategory, searchQuery]);
 
   const categoryCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: oracles.length };
-    oracles.forEach(o => {
+    // Only count valid oracles with config
+    const validOracles = oracles.filter(o => o.config && o.config.type);
+    const counts: Record<string, number> = { all: validOracles.length };
+    validOracles.forEach(o => {
       const type = o.config.type;
       counts[type] = (counts[type] || 0) + 1;
     });

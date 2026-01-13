@@ -30,7 +30,22 @@ export const OraclesProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         const stored = await AsyncStorage.getItem('@oracles');
         if (stored) {
-          setOracles(JSON.parse(stored));
+          const parsed = JSON.parse(stored);
+          
+          // Migrate old oracles or filter them out
+          const validOracles = Array.isArray(parsed)
+            ? parsed.filter((o: any) => {
+                // Check if oracle has the new config structure
+                if (o.config && typeof o.config === 'object' && o.config.type) {
+                  return true;
+                }
+                console.warn('[OraclesContext] Filtering out invalid oracle (old format):', o.id);
+                return false;
+              })
+            : [];
+          
+          console.log(`[OraclesContext] Loaded ${validOracles.length} valid oracles (filtered ${parsed.length - validOracles.length} old format)`);
+          setOracles(validOracles);
         }
       } catch (error) {
         console.error('[OraclesContext] Failed to load oracles:', error);
