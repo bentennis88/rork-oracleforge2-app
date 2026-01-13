@@ -5,7 +5,7 @@ import React, { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { OracleStoreProvider } from "@/oracles/OracleStore";
+import { OraclesProvider } from "@/oracles/OracleStore";
 import CustomSplashScreen from "@/components/SplashScreen";
 import colors from "@/constants/colors";
 
@@ -15,34 +15,36 @@ const queryClient = new QueryClient();
 
 function RootLayoutNav() {
   return (
-    <Stack 
-      screenOptions={{ 
-        headerBackTitle: "Back",
-        headerStyle: {
-          backgroundColor: colors.background,
-        },
-        headerTintColor: colors.text,
-        contentStyle: {
-          backgroundColor: colors.background,
-        },
-      }}
-    >
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen 
-        name="oracle/[id]" 
-        options={{ 
-          headerShown: false,
-          presentation: 'card',
-        }} 
-      />
-      <Stack.Screen 
-        name="oracle/preview" 
-        options={{ 
-          headerShown: false,
-          presentation: 'card',
-        }} 
-      />
-    </Stack>
+    <OraclesProvider>
+      <Stack 
+        screenOptions={{ 
+          headerBackTitle: "Back",
+          headerStyle: {
+            backgroundColor: colors.background,
+          },
+          headerTintColor: colors.text,
+          contentStyle: {
+            backgroundColor: colors.background,
+          },
+        }}
+      >
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen 
+          name="oracle/[id]" 
+          options={{ 
+            headerShown: false,
+            presentation: 'card',
+          }} 
+        />
+        <Stack.Screen 
+          name="oracle/preview" 
+          options={{ 
+            headerShown: false,
+            presentation: 'card',
+          }} 
+        />
+      </Stack>
+    </OraclesProvider>
   );
 }
 
@@ -70,10 +72,8 @@ export default function RootLayout() {
     <QueryClientProvider client={queryClient}>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <AuthProvider>
-          <OracleStoreProvider>
-            <StatusBar style="light" />
-            <RootLayoutNav />
-          </OracleStoreProvider>
+          <StatusBar style="light" />
+          <RootLayoutNav />
         </AuthProvider>
       </GestureHandlerRootView>
     </QueryClientProvider>

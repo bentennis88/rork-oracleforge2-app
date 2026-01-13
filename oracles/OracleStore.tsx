@@ -153,3 +153,6 @@ export const [OracleStoreProvider, useOracleStore] = createContextHook<OracleSto
   );
 });
 
+// Alias to match app-wide naming conventions / older instructions.
+export const OraclesProvider = OracleStoreProvider;
+
