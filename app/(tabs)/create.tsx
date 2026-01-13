@@ -13,18 +13,16 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Sparkles, Wand2, Save } from 'lucide-react-native';
-import { useAuth } from '@/contexts/AuthContext';
-import { useOracles } from '@/contexts/OracleContext';
 import colors from '@/constants/colors';
 import { renderOracle } from '@/oracles/registry';
 import type { OracleConfig } from '@/oracles/types';
 import { generateOracleConfig } from '@/services/grokApi';
+import { useOracleStore } from '@/oracles/OracleStore';
 
 export default function CreateScreen() {
   const router = useRouter();
   const scrollViewRef = useRef<ScrollView>(null);
-  const { user, isAuthenticated } = useAuth();
-  const { createOracle } = useOracles();
+  const { createOracle } = useOracleStore();
 
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -52,14 +50,10 @@ export default function CreateScreen() {
       setConfig(result.config);
       setConversationHistory(result.conversationHistory as any);
 
-      // If signed in, persist immediately and jump to the oracle run screen.
-      if (isAuthenticated && user?.id) {
-        const created = await createOracle(result.config);
-        if (created) {
-          router.replace('/oracle/' + created.id);
-          return;
-        }
-      }
+      // Persist immediately and jump to the oracle run screen.
+      const created = await createOracle(result.config.type, result.config as any);
+      router.replace('/oracle/' + created.id);
+      return;
 
       // Otherwise, scroll to preview (still renders immediately).
       setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 200);
@@ -71,25 +65,13 @@ export default function CreateScreen() {
   };
 
   const handleSave = async () => {
-    if (!isAuthenticated || !user?.id) {
-      Alert.alert('Sign in required', 'Please sign in to save oracles', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Go to Profile', onPress: () => router.push('/(tabs)/profile') },
-      ]);
-      return;
-    }
-
     if (!config) {
       Alert.alert('Error', 'Generate an oracle first');
       return;
     }
 
     try {
-      const created = await createOracle(config);
-      if (!created) {
-        throw new Error('Failed to create oracle');
-      }
-
+      const created = await createOracle(config.type, config as any);
       router.replace('/oracle/' + created.id);
     } catch (error: any) {
       Alert.alert('Save Failed', error.message);
@@ -178,9 +160,8 @@ export default function CreateScreen() {
 
             {/* Save */}
             <TouchableOpacity
-              style={[styles.button, styles.saveButton, !isAuthenticated && styles.buttonDisabled]}
+              style={[styles.button, styles.saveButton]}
               onPress={handleSave}
-              disabled={!isAuthenticated}
               activeOpacity={0.85}
             >
               <Save size={18} color={colors.background} />

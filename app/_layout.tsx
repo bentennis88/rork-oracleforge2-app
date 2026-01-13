@@ -5,7 +5,7 @@ import React, { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { OracleProvider } from "@/contexts/OracleContext";
+import { OracleStoreProvider } from "@/oracles/OracleStore";
 import CustomSplashScreen from "@/components/SplashScreen";
 import colors from "@/constants/colors";
 
@@ -70,10 +70,10 @@ export default function RootLayout() {
     <QueryClientProvider client={queryClient}>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <AuthProvider>
-          <OracleProvider>
+          <OracleStoreProvider>
             <StatusBar style="light" />
             <RootLayoutNav />
-          </OracleProvider>
+          </OracleStoreProvider>
         </AuthProvider>
       </GestureHandlerRootView>
     </QueryClientProvider>

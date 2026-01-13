@@ -20,29 +20,24 @@ import {
 import * as Haptics from 'expo-haptics';
 import colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { useOracles } from '@/contexts/OracleContext';
+import { useOracleStore } from '@/oracles/OracleStore';
 import OracleCard from '@/components/OracleCard';
 import Onboarding from '@/components/Onboarding';
-import { OracleCategory, Oracle } from '@/types';
 
-const categories: { key: OracleCategory | 'all'; label: string; icon: React.ComponentType<{ size: number; color: string }> }[] = [
+const categories: { key: string; label: string; icon: React.ComponentType<{ size: number; color: string }> }[] = [
   { key: 'all', label: 'All', icon: Box },
   { key: 'tracker', label: 'Trackers', icon: Activity },
   { key: 'calculator', label: 'Calculators', icon: Calculator },
-  { key: 'list', label: 'Lists', icon: ListTodo },
   { key: 'reminder', label: 'Reminders', icon: Bell },
-  { key: 'finance', label: 'Finance', icon: DollarSign },
-  { key: 'health', label: 'Health', icon: Heart },
-  { key: 'productivity', label: 'Productivity', icon: Briefcase },
 ];
 
 export default function DashboardScreen() {
   const router = useRouter();
   const { user, isAuthenticated, hasCompletedOnboarding, completeOnboarding, isPro } = useAuth();
-  const { oracles, deleteOracle } = useOracles();
+  const { oracles, deleteOracle } = useOracleStore();
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<OracleCategory | 'all'>('all');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [toast, setToast] = useState({ visible: false, message: '' });
 
   const toastAnim = useRef(new Animated.Value(0)).current;
@@ -51,15 +46,14 @@ export default function DashboardScreen() {
     let result = oracles;
     
     if (selectedCategory !== 'all') {
-      result = result.filter(o => (o.category || 'other') === selectedCategory);
+      result = result.filter(o => String((o as any).type || (o as any)?.config?.type || '') === selectedCategory);
     }
     
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter(o => 
-        o.name.toLowerCase().includes(query) ||
-        o.description.toLowerCase().includes(query) ||
-        o.prompt.toLowerCase().includes(query)
+        String((o as any)?.config?.title || '').toLowerCase().includes(query) ||
+        String((o as any)?.config?.description || '').toLowerCase().includes(query)
       );
     }
     
@@ -69,8 +63,8 @@ export default function DashboardScreen() {
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = { all: oracles.length };
     oracles.forEach(o => {
-      const cat = o.category || 'other';
-      counts[cat] = (counts[cat] || 0) + 1;
+      const t = String((o as any).type || (o as any)?.config?.type || 'tracker');
+      counts[t] = (counts[t] || 0) + 1;
     });
     return counts;
   }, [oracles]);

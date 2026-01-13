@@ -12,13 +12,13 @@ import { User, LogOut, Mail, Shield, ChevronRight, Crown, Zap, Lock } from 'luci
 import * as Haptics from 'expo-haptics';
 import colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { useOracles } from '@/contexts/OracleContext';
+import { useOracleStore } from '@/oracles/OracleStore';
 
 const FREE_ORACLE_LIMIT = 2;
 
 export default function ProfileScreen() {
   const { user, isAuthenticated, signIn, signOut, isPro } = useAuth();
-  const { oracles } = useOracles();
+  const { oracles } = useOracleStore();
   const oraclesRemaining = FREE_ORACLE_LIMIT - oracles.length;
   const isAtLimit = oracles.length >= FREE_ORACLE_LIMIT && !isPro;
   const [email, setEmail] = useState('');
@@ -171,7 +171,7 @@ export default function ProfileScreen() {
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Text style={styles.statValue}>
-              {oracles.filter(o => o.isActive).length}
+              {oracles.length}
             </Text>
             <Text style={styles.statLabel}>Active</Text>
           </View>

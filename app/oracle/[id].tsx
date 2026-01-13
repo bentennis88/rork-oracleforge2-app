@@ -3,13 +3,13 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'rea
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { ArrowLeft, Trash2 } from 'lucide-react-native';
 import colors from '@/constants/colors';
-import { useOracles } from '@/contexts/OracleContext';
 import { renderOracle } from '@/oracles/registry';
+import { useOracleStore } from '@/oracles/OracleStore';
 
 export default function OracleDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { oracles, deleteOracle } = useOracles();
+  const { oracles, deleteOracle } = useOracleStore();
 
   const oracle = useMemo(() => oracles.find(o => o.id === id), [id, oracles]);
 
@@ -51,7 +51,7 @@ export default function OracleDetailScreen() {
           <ArrowLeft size={20} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.topTitle} numberOfLines={1}>
-          {oracle.name}
+          {String((oracle as any)?.config?.title || 'Oracle')}
         </Text>
         <TouchableOpacity onPress={handleDelete} style={styles.deleteBtn} activeOpacity={0.85}>
           <Trash2 size={18} color={colors.error} />
@@ -59,11 +59,11 @@ export default function OracleDetailScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.previewCard}>{renderOracle(oracle.config)}</View>
-        {oracle.prompt ? (
+        <View style={styles.previewCard}>{renderOracle((oracle as any).config)}</View>
+        {(oracle as any)?.config?.description ? (
           <View style={styles.infoCard}>
             <Text style={styles.infoTitle}>About</Text>
-            <Text style={styles.infoText}>{oracle.prompt}</Text>
+            <Text style={styles.infoText}>{String((oracle as any).config.description)}</Text>
           </View>
         ) : null}
       </ScrollView>

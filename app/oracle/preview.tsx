@@ -5,14 +5,12 @@ import { ArrowLeft, Save } from 'lucide-react-native';
 import colors from '@/constants/colors';
 import { renderOracle } from '@/oracles/registry';
 import type { OracleConfig } from '@/oracles/types';
-import { useOracles } from '@/contexts/OracleContext';
-import { useAuth } from '@/hooks/useAuth';
+import { useOracleStore } from '@/oracles/OracleStore';
 
 export default function PreviewOracleScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ config?: string }>();
-  const { isAuthenticated } = useAuth();
-  const { createOracle } = useOracles();
+  const { createOracle } = useOracleStore();
 
   const config = useMemo<OracleConfig | null>(() => {
     if (!params.config) return null;
@@ -26,12 +24,7 @@ export default function PreviewOracleScreen() {
 
   const handleSave = async () => {
     if (!config) return;
-    if (!isAuthenticated) {
-      Alert.alert('Sign in required', 'Please sign in to save oracles.');
-      return;
-    }
-    const created = await createOracle({ ...(config as any), id: 'draft' } as OracleConfig);
-    if (!created) return;
+    const created = await createOracle(config.type, { ...(config as any), id: 'draft' } as any);
     router.replace('/oracle/' + created.id);
   };
 
