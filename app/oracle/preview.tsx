@@ -18,7 +18,7 @@ import colors from '@/constants/colors';
 import { useOracles } from '@/contexts/OracleContext';
 import { useAuth } from '@/hooks/useAuth';
 import DynamicOracleRenderer from '@/components/DynamicOracleRenderer';
-import { streamingLikeGeneration, buildConversationHistory } from '@/utils/claudeService';
+import { refineOracleCode } from '@/services/grokApi';
 
 interface OracleConfig {
   name: string;
@@ -68,6 +68,7 @@ export default function PreviewOracleScreen() {
   const [isRefining, setIsRefining] = useState(false);
   const [currentConfig, setCurrentConfig] = useState<OracleConfig | null>(config);
   const [conversationHistory, setConversationHistory] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
+  const [renderKey, setRenderKey] = useState(0);
 
   const scrollViewRef = useRef<ScrollView>(null);
   const chatScrollRef = useRef<ScrollView>(null);
@@ -164,36 +165,27 @@ export default function PreviewOracleScreen() {
     try {
       console.log('[Preview Refine] Starting refinement with feedback:', userMessage.content);
 
-      const messages = buildConversationHistory(conversationHistory);
-      
-      const result = await streamingLikeGeneration(
-        userMessage.content,
-        messages,
-        currentConfig.code,
-        (stage) => {
-          setRefineMessages(prev => prev.map(m => 
-            m.id === generatingId ? { ...m, stage } : m
-          ));
-        }
-      );
+      const basePrompt = currentConfig.description || '';
+      const updatedPrompt =
+        basePrompt.trim().length > 0
+          ? basePrompt.trim() + '\n\nRefinement: ' + userMessage.content
+          : userMessage.content;
 
-      const updatedHistory = [
-        ...conversationHistory,
-        { role: 'user' as const, content: userMessage.content },
-        { role: 'assistant' as const, content: `Updated: ${result.description}` },
-      ];
+      const result = await refineOracleCode(
+        currentConfig.code || '',
+        userMessage.content,
+        conversationHistory
+      );
 
       const updatedConfig: OracleConfig = {
         ...currentConfig,
-        name: result.name,
-        description: result.description,
+        description: updatedPrompt,
         code: result.code,
-        accentColor: result.accentColor,
-        icon: result.icon,
       };
 
       setCurrentConfig(updatedConfig);
-      setConversationHistory(updatedHistory);
+      setConversationHistory(result.conversationHistory as any);
+      setRenderKey(prev => prev + 1);
       
       setRefineMessages(prev => prev.filter(m => m.id !== generatingId));
       
@@ -322,7 +314,7 @@ export default function PreviewOracleScreen() {
             </View>
             <View style={styles.previewContainer}>
               <DynamicOracleRenderer
-                key={`preview-${conversationHistory.length}`}
+                key={`preview-${renderKey}`}
                 code={activeConfig.code || ''}
                 userId={user?.id || 'guest'}
                 oracleId="preview"

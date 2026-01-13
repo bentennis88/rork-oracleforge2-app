@@ -32,11 +32,12 @@ import {
   CheckCircle,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { streamingLikeGeneration, buildConversationHistory } from '@/utils/claudeService';
 import colors from '@/constants/colors';
 import { useOracles } from '@/contexts/OracleContext';
 import { useAuth } from '@/hooks/useAuth';
 import DynamicOracleRenderer from '@/components/DynamicOracleRenderer';
+import { refineOracleCode } from '@/services/grokApi';
+import firebaseService from '@/services/firebaseService';
 
 const iconMap: Record<string, React.ComponentType<{ size: number; color: string }>> = {
   Zap,
@@ -162,32 +163,38 @@ export default function OracleDetailScreen() {
 
     try {
       console.log('[Refine] Starting refinement with feedback:', userMessage.content);
-
-      const conversationHistory = oracle.conversationHistory || [];
-      const messages = buildConversationHistory(conversationHistory);
-      
-      const result = await streamingLikeGeneration(
-        userMessage.content,
-        messages,
+      const existingHistory = oracle.conversationHistory || [];
+      const result = await refineOracleCode(
         oracle.generatedCode,
-        (stage) => {
-          setRefineMessages(prev => prev.map(m => 
-            m.id === generatingId ? { ...m, stage } : m
-          ));
-        }
+        userMessage.content,
+        existingHistory as any
       );
 
-      const updatedHistory = [
-        ...conversationHistory,
-        { role: 'user' as const, content: userMessage.content },
-        { role: 'assistant' as const, content: `Updated: ${result.description}` },
-      ];
+      const updatedPrompt =
+        oracle.prompt.trim().length > 0
+          ? oracle.prompt.trim() + '\n\nRefinement: ' + userMessage.content
+          : userMessage.content;
 
-      await updateOracle(oracle.id, { 
+      await updateOracle(oracle.id, {
         generatedCode: result.code,
-        conversationHistory: updatedHistory,
-        color: result.accentColor,
+        prompt: updatedPrompt,
+        description: updatedPrompt.substring(0, 100),
+        conversationHistory: result.conversationHistory as any,
       });
+
+      // If this oracle is also persisted remotely, update the saved code.
+      // (Safe to attempt; ignore failures.)
+      try {
+        await firebaseService.updateOracle(oracle.id, {
+          code: result.code,
+          generatedCode: result.code,
+          prompt: updatedPrompt,
+          description: updatedPrompt.substring(0, 100),
+          conversationHistory: result.conversationHistory,
+        });
+      } catch (e) {
+        console.log('[Refine] Firebase update skipped/failed:', e);
+      }
       
       setRefineMessages(prev => prev.filter(m => m.id !== generatingId));
       
@@ -200,7 +207,7 @@ export default function OracleDetailScreen() {
       
       setRenderKey(prev => prev + 1);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      showToastMessage('Oracle updated');
+      showToastMessage('Oracle refined');
       
       console.log('[Refine] Oracle updated successfully');
     } catch (error) {
