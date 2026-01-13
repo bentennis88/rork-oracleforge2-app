@@ -713,7 +713,6 @@ const createExecutionContext = () => {
   };
 };
 
-const createOracleComponent = (code: string) => {
 const createOracleComponent = (code: string, promptText: string) => {
   try {
     console.log('[DynamicOracle] Creating component, code length:', code.length);
