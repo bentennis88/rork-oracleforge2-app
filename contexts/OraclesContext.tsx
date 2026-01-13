@@ -1,11 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
+export type OracleConfig =
+  | { type: 'tracker'; metric: string; unit: string; dailyGoal: number }
+  | { type: 'reminder'; message: string; startHour: number; endHour: number; interval: number }
+  | { type: 'calculator'; formula: string; inputs: { key: string; label: string }[] };
+
 export interface Oracle {
   id: string;
   title: string;
-  category: string;
-  content: string;
+  config: OracleConfig;
+  data: any;
 }
 
 interface OraclesContextType {
