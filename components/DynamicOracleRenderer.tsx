@@ -787,6 +787,11 @@ const buildAutoFixFeedback = (errorMessage: string): string => {
   const lower = msg.toLowerCase();
   let hint = 'Fix syntax errors in this code.';
 
+  if (lower.includes('await') && (lower.includes('only valid') || lower.includes('reserved word'))) {
+    hint =
+      'Fix async/await usage: ensure every "await" is inside an "async" function and remove any top-level await. If needed, convert async/await to Promise.then/catch.';
+  }
+
   if (lower.includes('unterminated') && lower.includes('jsx')) {
     hint = 'Fix unterminated JSX (missing closing tag or missing ">").';
   } else if (lower.includes('unexpected token')) {
@@ -837,18 +842,33 @@ const transpileCode = (code: string, promptText: string): { transpiled: string; 
       throw new Error(`Pre-validate failed${loc}: ${pre.message}`);
     }
 
-    const result = Babel.transform(cleaned, {
+    let result;
+    try {
+      result = Babel.transform(cleaned, {
       presets: ['react', 'typescript'],
       plugins: [
         'transform-modules-commonjs',
         'proposal-class-properties',
         'proposal-object-rest-spread',
+        // Support async/await-heavy generated code by lowering it to generators.
+        // This is independent of Metro and only affects the dynamic component string.
+        'transform-async-to-generator',
+        // Some generated code uses arrow functions heavily; keep compatibility consistent.
+        'transform-arrow-functions',
+        // Helps normalize template literals; combined with our other cleanups this reduces edge cases.
+        'transform-template-literals',
       ],
       filename: 'OracleComponent.tsx',
       sourceType: 'module',
     });
+    } catch (inner: any) {
+      const innerMsg = inner instanceof Error ? inner.message : String(inner);
+      // Log full cleaned code when transpilation fails so we can debug exact output.
+      console.log('[Babel] Full cleaned code (transpile failure):\n' + cleaned);
+      throw inner;
+    }
     
-    if (!result.code) {
+    if (!result?.code) {
       throw new Error('Babel returned empty code');
     }
     
