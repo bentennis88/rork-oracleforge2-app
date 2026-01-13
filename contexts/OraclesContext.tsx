@@ -1,10 +1,39 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
+export type TrackerOracleConfig = {
+  type: 'tracker';
+  id: string;
+  title: string;
+  metric: string;
+  unit: string;
+  dailyGoal: number;
+  incrementOptions?: number[];
+  chartWindowDays?: number;
+};
+
+export type ReminderOracleConfig = {
+  type: 'reminder';
+  id: string;
+  title: string;
+  message: string;
+  startHour: number;
+  endHour: number;
+  intervalMinutes: number;
+};
+
+export type CalculatorOracleConfig = {
+  type: 'calculator';
+  id: string;
+  title: string;
+  formula: string;
+  inputs: { key: string; label: string }[];
+};
+
 export type OracleConfig =
-  | { type: 'tracker'; metric: string; unit: string; dailyGoal: number }
-  | { type: 'reminder'; message: string; startHour: number; endHour: number; interval: number }
-  | { type: 'calculator'; formula: string; inputs: { key: string; label: string }[] };
+  | TrackerOracleConfig
+  | ReminderOracleConfig
+  | CalculatorOracleConfig;
 
 export interface Oracle {
   id: string;

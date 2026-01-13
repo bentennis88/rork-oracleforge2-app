@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useOracles, Oracle, OracleConfig } from '@/contexts/OraclesContext';
+import { renderOracle } from '@/oracles/registry';
 import colors from '@/constants/colors';
-import { ArrowLeft, Save, X, Plus, Trash2 } from 'lucide-react-native';
+import { ArrowLeft, Save, X, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react-native';
 
 export default function RefineOracleScreen() {
   const router = useRouter();
@@ -12,6 +13,7 @@ export default function RefineOracleScreen() {
   const oracleId = params.oracleId;
 
   const [oracle, setOracle] = useState<Oracle | null>(null);
+  const [showEditForm, setShowEditForm] = useState(false);
   const [title, setTitle] = useState('');
   
   // Tracker state
@@ -182,9 +184,28 @@ export default function RefineOracleScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.typeTag}>
-          <Text style={styles.typeTagText}>{oracle.config.type.toUpperCase()}</Text>
+        {/* Live Oracle Preview */}
+        <View style={styles.oraclePreview}>
+          {renderOracle(oracle.config)}
         </View>
+
+        {/* Toggle Edit Form */}
+        <TouchableOpacity
+          style={styles.toggleButton}
+          onPress={() => setShowEditForm(!showEditForm)}
+          activeOpacity={0.7}
+        >
+          {showEditForm ? <ChevronUp size={20} color={colors.accent} /> : <ChevronDown size={20} color={colors.accent} />}
+          <Text style={styles.toggleText}>
+            {showEditForm ? 'Hide' : 'Show'} Configuration
+          </Text>
+        </TouchableOpacity>
+
+        {showEditForm && (
+          <>
+            <View style={styles.typeTag}>
+              <Text style={styles.typeTagText}>{oracle.config.type.toUpperCase()}</Text>
+            </View>
 
         <View style={styles.form}>
           <Text style={styles.label}>Title</Text>
@@ -337,6 +358,8 @@ export default function RefineOracleScreen() {
             </TouchableOpacity>
           </View>
         </View>
+          </>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -394,6 +417,32 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.accent,
     letterSpacing: 0.5,
+  },
+  oraclePreview: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    overflow: 'hidden',
+    marginBottom: 16,
+    minHeight: 200,
+  },
+  toggleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 12,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    marginBottom: 16,
+  },
+  toggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.accent,
   },
   form: {
     gap: 16,

@@ -42,10 +42,15 @@ export default function CreateOracleScreen() {
       console.log('[CreateOracle] Received config:', config);
 
       // Create oracle with AI-generated config
+      const oracleId = generateId();
       const newOracle: Oracle = {
-        id: generateId(),
-        title: title.trim(),
-        config,
+        id: oracleId,
+        title: config.title || title.trim(), // Use AI-generated title if available
+        config: {
+          ...config,
+          id: oracleId, // Ensure config has the oracle ID
+          title: config.title || title.trim(), // Ensure config has title
+        } as OracleConfig,
         data: {}, // Empty data object for runtime state
       };
 

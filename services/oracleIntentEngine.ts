@@ -27,23 +27,31 @@ Return ONLY a JSON object matching ONE of these structures:
 TRACKER:
 {
   "type": "tracker",
+  "id": "tracker_water",
+  "title": "Water Intake Tracker",
   "metric": "water",
   "unit": "ml",
-  "dailyGoal": 2000
+  "dailyGoal": 2000,
+  "incrementOptions": [250, 500, 1000],
+  "chartWindowDays": 7
 }
 
 REMINDER:
 {
   "type": "reminder",
+  "id": "reminder_medication",
+  "title": "Medication Reminder",
   "message": "Take medication",
   "startHour": 8,
   "endHour": 20,
-  "interval": 480
+  "intervalMinutes": 480
 }
 
 CALCULATOR:
 {
   "type": "calculator",
+  "id": "calc_compound",
+  "title": "Compound Interest Calculator",
   "formula": "principal * (1 + rate) ^ years",
   "inputs": [
     { "key": "principal", "label": "Initial Amount" },
@@ -55,20 +63,28 @@ CALCULATOR:
 RULES:
 - Return ONLY valid JSON (no markdown, no explanation, no code fences)
 - Choose the most appropriate type based on user intent
-- Use sensible defaults for all fields
-- For trackers: common units (ml, steps, hours, reps, etc.)
-- For reminders: interval in minutes (e.g., 480 = 8 hours)
-- For calculators: simple formulas using standard operators (+, -, *, /, ^)
+- **ALWAYS include ALL required fields**: id, title, and type-specific fields
+- Generate a unique id like "tracker_water" or "reminder_meds"
+- Create a descriptive title based on the user's intent
+- For trackers:
+  - Common units (ml, steps, hours, minutes, reps, km, etc.)
+  - incrementOptions: array of quick-add buttons (e.g., [250, 500, 1000])
+  - chartWindowDays: 7 (shows last week of data)
+- For reminders:
+  - intervalMinutes: gap between reminders in minutes (60 = hourly, 480 = 8 hours)
+- For calculators:
+  - Simple formulas using standard operators (+, -, *, /, ^)
+  - Clear input labels
 
 EXAMPLES:
 User: "Track my daily water intake"
-→ {"type":"tracker","metric":"water","unit":"ml","dailyGoal":2000}
+→ {"type":"tracker","id":"tracker_water","title":"Water Intake Tracker","metric":"water","unit":"ml","dailyGoal":2000,"incrementOptions":[250,500,1000],"chartWindowDays":7}
 
 User: "Remind me to take medicine every 8 hours from 8am to 8pm"
-→ {"type":"reminder","message":"Take medicine","startHour":8,"endHour":20,"interval":480}
+→ {"type":"reminder","id":"reminder_medication","title":"Medication Reminder","message":"Take medicine","startHour":8,"endHour":20,"intervalMinutes":480}
 
 User: "Calculate compound interest on savings"
-→ {"type":"calculator","formula":"principal * (1 + rate/100) ^ years","inputs":[{"key":"principal","label":"Principal ($)"},{"key":"rate","label":"Interest Rate (%)"},{"key":"years","label":"Years"}]}
+→ {"type":"calculator","id":"calc_savings","title":"Savings Calculator","formula":"principal * (1 + rate/100) ^ years","inputs":[{"key":"principal","label":"Principal ($)"},{"key":"rate","label":"Interest Rate (%)"},{"key":"years","label":"Years"}]}
 `;
 
 async function callGrokAPI(userPrompt: string): Promise<string> {
