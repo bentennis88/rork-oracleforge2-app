@@ -610,35 +610,37 @@ const cleanAiGeneratedCode = (input: string, promptText: string): string => {
   // Fix unterminated string literals (very common in AI output), especially hex colors like "#22c55e".
   // We keep this conservative: only touch common color-ish props and only when the line has an odd quote count.
   const fixUnterminatedStrings = (src: string): string => {
-    const colorPropRe =
-      /^\s*(backgroundColor|borderColor|color|tintColor|shadowColor)\s*:\s*/;
-
+    // Conservative: fix common `prop: '...` or `prop: "...` lines that are missing a closing quote.
+    // Avoid touching lines that already contain an even number of quotes.
     return src
       .split('\n')
       .map(line => {
-        if (!colorPropRe.test(line)) return line;
+        const trimmed = line.trimEnd();
+        if (!trimmed.includes(':')) return line;
 
-        const singleQuotes = (line.match(/'/g) || []).length;
-        const doubleQuotes = (line.match(/"/g) || []).length;
-
-        const hasHex = line.includes('#');
-        const hasRgba = line.includes('rgba(') || line.includes('rgb(');
-        const hasHsl = line.includes('hsl(') || line.includes('hsla(');
-
-        // If it looks like a quoted color string but missing the closing quote.
-        if ((hasHex || hasRgba || hasHsl) && singleQuotes % 2 === 1) {
-          // Insert quote before trailing comma if present, otherwise append.
-          if (line.trimEnd().endsWith(',')) {
-            return line.replace(/,\s*$/, "',");
-          }
-          return line + "'";
+        // If a line contains an odd number of single quotes and appears to start a string literal, close it.
+        const singleQuotes = (trimmed.match(/'/g) || []).length;
+        if (singleQuotes % 2 === 1 && /:\s*'[^']*$/.test(trimmed)) {
+          if (trimmed.endsWith(',')) return trimmed.replace(/,\s*$/, "',");
+          return trimmed + "'";
         }
 
-        if ((hasHex || hasRgba || hasHsl) && doubleQuotes % 2 === 1) {
-          if (line.trimEnd().endsWith(',')) {
-            return line.replace(/,\s*$/, '",');
-          }
-          return line + '"';
+        // Same for double quotes.
+        const doubleQuotes = (trimmed.match(/"/g) || []).length;
+        if (doubleQuotes % 2 === 1 && /:\s*"[^"]*$/.test(trimmed)) {
+          if (trimmed.endsWith(',')) return trimmed.replace(/,\s*$/, '",');
+          return trimmed + '"';
+        }
+
+        // Extra conservative helper for color-ish lines that contain # / rgba / hsl and have odd quotes.
+        const hasColorish = trimmed.includes('#') || trimmed.includes('rgba(') || trimmed.includes('rgb(') || trimmed.includes('hsl(') || trimmed.includes('hsla(');
+        if (hasColorish && singleQuotes % 2 === 1) {
+          if (trimmed.endsWith(',')) return trimmed.replace(/,\s*$/, "',");
+          return trimmed + "'";
+        }
+        if (hasColorish && doubleQuotes % 2 === 1) {
+          if (trimmed.endsWith(',')) return trimmed.replace(/,\s*$/, '",');
+          return trimmed + '"';
         }
 
         return line;
@@ -819,13 +821,32 @@ const extractLineFromError = (errorMessage: string): number | undefined => {
   return Number.isFinite(line) ? line : undefined;
 };
 
-const getLineSnippet = (code: string, line?: number): string => {
+const extractColFromError = (errorMessage: string): number | undefined => {
+  const msg = (errorMessage || '').toString();
+  const m =
+    msg.match(/at\s+(\d+):(\d+)/) ||
+    msg.match(/\((\d+):(\d+)\)/) ||
+    msg.match(/:(\d+):(\d+)/);
+  if (!m) return undefined;
+  const col = Number(m[2]);
+  return Number.isFinite(col) ? col : undefined;
+};
+
+const getContextAroundLine = (code: string, line?: number, col?: number): string => {
   if (!line || line < 1) return '';
   const lines = (code || '').split('\n');
   const idx = line - 1;
   if (idx < 0 || idx >= lines.length) return '';
-  const snippet = lines[idx] ?? '';
-  return snippet.trim().slice(0, 200);
+
+  const windowLines = [lines[idx - 1] || '', lines[idx] || '', lines[idx + 1] || ''].join('\n');
+  const compact = windowLines.replace(/\s+/g, ' ').trim();
+
+  // Return ~100 chars around the approximate column, falling back to the start.
+  if (col != null && col > 0) {
+    const start = Math.max(0, col - 50);
+    return compact.slice(start, start + 100);
+  }
+  return compact.slice(0, 100);
 };
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -953,7 +974,7 @@ const createExecutionContext = () => {
   };
 };
 
-const createOracleComponent = (code: string, promptText: string) => {
+const createOracleComponent = async (code: string, promptText: string) => {
   try {
     console.log('[DynamicOracle] Creating component, code length:', code.length);
 
@@ -1008,10 +1029,10 @@ const createOracleComponent = (code: string, promptText: string) => {
       throw new Error(`Module not found: ${name}`);
     };
 
-    // Use eval instead of new Function to support async/await
-    // Wrap in an IIFE to create proper scope
+    // Use eval with an ASYNC factory to support top-level await inside the transpiled module body.
+    // (This makes "await" valid anywhere inside the module wrapper.)
     const evalCode = `
-      (function(module, exports, require, ${Object.keys(context).join(', ')}) {
+      (async function(module, exports, require, ${Object.keys(context).join(', ')}) {
         ${transpiled}
         return module.exports.default || module.exports;
       })
@@ -1021,7 +1042,7 @@ const createOracleComponent = (code: string, promptText: string) => {
 
     // Execute the code with eval (safe because we control the source via AI)
     const componentFactory = eval(evalCode) as any;
-    const LoadedComponent = componentFactory(module, exports, require, ...Object.values(context));
+    const LoadedComponent = await componentFactory(module, exports, require, ...Object.values(context));
 
     if (!LoadedComponent) {
       throw new Error('No component exported from code');
@@ -1035,6 +1056,9 @@ const createOracleComponent = (code: string, promptText: string) => {
     return LoadedComponent;
   } catch (error) {
     console.error('[DynamicOracle] ❌ Error creating component:', error);
+    const msg = error instanceof Error ? error.message : String(error);
+    // Helpful when debugging: log full code for this oracle attempt (may be long).
+    console.log('[DynamicOracle] Source code (first 4000 chars):\n' + String(code).slice(0, 4000));
 
     const errorMsg = error instanceof Error ? error.message : String(error);
     const errorName = error instanceof Error ? error.name : '';
@@ -1226,7 +1250,7 @@ export default function DynamicOracleRenderer({
     const timeoutId = setTimeout(() => {
       const run = async () => {
         try {
-          const component = createOracleComponent(code, promptText);
+          const component = await createOracleComponent(code, promptText);
           if (cancelled) return;
 
           if (component) {
@@ -1267,20 +1291,24 @@ export default function DynamicOracleRenderer({
 
               try {
                 const line = extractLineFromError(lastErrMsg);
-                const snippet = getLineSnippet(current, line);
+                const col = extractColFromError(lastErrMsg);
+                const snippet = getContextAroundLine(current, line, col);
                 const base = buildAutoFixFeedback(lastErrMsg);
 
                 let extraHint = '';
                 if (snippet) {
                   // Provide a concrete snippet to guide the model.
-                  extraHint = ` Error near line ${line}: "${snippet}".`;
+                  extraHint = ` Fix this code snippet from line ${line}: "${snippet}".`;
                   // If it looks like a missing quote in a hex color, call it out explicitly.
                   if (snippet.includes('#') && (snippet.match(/'/g) || []).length % 2 === 1) {
                     extraHint += ` The color string looks unterminated; add the missing closing quote.`;
                   }
                 }
 
-                const feedback = base + extraHint;
+                const isSyntaxError = String(lastErrMsg).includes('SyntaxError') || String(lastErrMsg).includes('Unexpected token');
+                const evalSafeHint = isSyntaxError ? ' Make code eval-safe: no top-level await, no top-level async side effects; move awaits into async functions or use Promise.then().' : '';
+
+                const feedback = base + extraHint + evalSafeHint;
 
                 const fixed = await refineOracleCode(
                   current,
@@ -1295,7 +1323,7 @@ export default function DynamicOracleRenderer({
                 current = fixed.code;
 
                 try {
-                  const fixedComponent = createOracleComponent(current, promptText);
+                  const fixedComponent = await createOracleComponent(current, promptText);
                   if (cancelled) return;
 
                   if (fixedComponent) {
