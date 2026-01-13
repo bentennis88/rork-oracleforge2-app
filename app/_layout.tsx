@@ -36,20 +36,6 @@ function RootLayoutNav() {
             presentation: 'card',
           }} 
         />
-        <Stack.Screen 
-          name="oracle/[id]" 
-          options={{ 
-            headerShown: false,
-            presentation: 'card',
-          }} 
-        />
-        <Stack.Screen 
-          name="oracle/preview" 
-          options={{ 
-            headerShown: false,
-            presentation: 'card',
-          }} 
-        />
       </Stack>
     </OraclesProvider>
   );
