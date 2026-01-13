@@ -4,18 +4,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LineChart } from 'react-native-chart-kit';
 import { TrendingUp, Plus } from 'lucide-react-native';
 import colors from '@/constants/colors';
-import { OracleComponentProps } from '../types';
+import firebaseService from '@/services/firebaseService';
+import { TrackerOracleConfig } from '../types';
 
-type LogItem = { id: string; date: string; value: number; ts: string };
-
-export default function TrackerOracle(props: OracleComponentProps) {
-  const storageKey = 'oracle_' + props.oracleId + '_tracker';
+export default function TrackerOracle(props: { config: TrackerOracleConfig }) {
+  const { config } = props;
+  const storageKey = 'oracle_' + config.id + '_tracker';
   const screenWidth = Dimensions.get('window').width;
 
   const [isLoading, setIsLoading] = useState(true);
-  const [goal, setGoal] = useState(10);
+  const [goal, setGoal] = useState(config.dailyGoal);
   const [todayValue, setTodayValue] = useState(0);
-  const [input, setInput] = useState('1');
+  const [input, setInput] = useState(String(config.incrementOptions[0] || 1));
   const [history, setHistory] = useState<Record<string, number>>({});
 
   const todayKey = useMemo(() => new Date().toISOString().split('T')[0], []);
@@ -58,22 +58,23 @@ export default function TrackerOracle(props: OracleComponentProps) {
 
     // Firestore log (optional; safe if firebaseService is provided)
     try {
-      await props.firebaseService?.addOracleLog?.(props.oracleId, {
+      await firebaseService.addOracleLog(config.id, {
         type: 'tracker_entry',
-        value: amt,
+        value: { amount: amt, unit: config.unit },
         timestamp: new Date().toISOString(),
         date: todayKey,
-      } satisfies Omit<LogItem, 'id'>);
+      });
     } catch (e) {
       console.log('[TrackerOracle] addOracleLog failed', e);
     }
-  }, [input, props.firebaseService, props.oracleId, todayKey, todayValue]);
+  }, [config.id, config.unit, input, todayKey, todayValue]);
 
   const last7 = useMemo(() => {
     const end = new Date();
     const labels: string[] = [];
     const data: number[] = [];
-    for (let i = 6; i >= 0; i--) {
+    const windowDays = Math.max(3, Math.min(30, config.chartWindowDays));
+    for (let i = windowDays - 1; i >= 0; i--) {
       const d = new Date(end);
       d.setDate(end.getDate() - i);
       const key = d.toISOString().split('T')[0];
@@ -81,7 +82,7 @@ export default function TrackerOracle(props: OracleComponentProps) {
       data.push(Number(history[key] || 0));
     }
     return { labels, data };
-  }, [history]);
+  }, [config.chartWindowDays, history]);
 
   const progress = useMemo(() => {
     if (goal <= 0) return 0;
@@ -100,27 +101,32 @@ export default function TrackerOracle(props: OracleComponentProps) {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <TrendingUp size={18} color={colors.accent} />
-        <Text style={styles.title}>Tracker Skeleton</Text>
+        <Text style={styles.title}>{config.title}</Text>
       </View>
 
       <View style={styles.card}>
         <Text style={styles.label}>Today</Text>
         <Text style={styles.metric}>
-          {todayValue} <Text style={styles.muted}>/ {goal}</Text>
+          {todayValue} <Text style={styles.muted}> {config.unit} / {goal} {config.unit}</Text>
         </Text>
         <View style={styles.barOuter}>
           <View style={[styles.barInner, { width: Math.round(progress * 100) + '%' }]} />
         </View>
 
         <View style={styles.row}>
-          <TextInput
-            style={styles.input}
-            value={input}
-            onChangeText={setInput}
-            keyboardType="numeric"
-            placeholder="Amount"
-            placeholderTextColor={colors.textMuted}
-          />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            {config.incrementOptions.map((opt) => (
+              <TouchableOpacity
+                key={String(opt)}
+                style={[styles.chip, input === String(opt) && styles.chipActive]}
+                onPress={() => setInput(String(opt))}
+              >
+                <Text style={[styles.chipText, input === String(opt) && styles.chipTextActive]}>
+                  +{opt}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
           <TouchableOpacity style={styles.button} onPress={add} activeOpacity={0.85}>
             <Plus size={16} color={colors.background} />
             <Text style={styles.buttonText}>Add</Text>
@@ -129,7 +135,7 @@ export default function TrackerOracle(props: OracleComponentProps) {
 
         <TouchableOpacity
           style={styles.secondary}
-          onPress={() => Alert.alert('Goal', 'Edit goal in code or extend this skeleton.')}
+          onPress={() => Alert.alert('Goal', 'Change the goal in the oracle config (dailyGoal).')}
         >
           <Text style={styles.secondaryText}>Set Goal (skeleton)</Text>
         </TouchableOpacity>
@@ -186,6 +192,20 @@ const styles = StyleSheet.create({
   },
   barInner: { height: 10, backgroundColor: colors.accent },
   row: { flexDirection: 'row', gap: 10, marginTop: 12, alignItems: 'center' },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    backgroundColor: colors.surface,
+  },
+  chipActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  chipText: { color: colors.textSecondary, fontWeight: '800', fontSize: 12 },
+  chipTextActive: { color: colors.background },
   input: {
     flex: 1,
     backgroundColor: colors.surface,

@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { Bell, Plus, Trash2 } from 'lucide-react-native';
 import colors from '@/constants/colors';
-import { OracleComponentProps } from '../types';
+import { ReminderOracleConfig } from '../types';
 
 type Time = { hour: number; minute: number };
 
@@ -12,12 +12,24 @@ function toKey(t: Time) {
   return String(t.hour).padStart(2, '0') + ':' + String(t.minute).padStart(2, '0');
 }
 
-export default function ReminderOracle(props: OracleComponentProps) {
-  const storageKey = 'oracle_' + props.oracleId + '_reminder';
+export default function ReminderOracle(props: { config: ReminderOracleConfig }) {
+  const { config } = props;
+  const storageKey = 'oracle_' + config.id + '_reminder';
 
   const [isLoading, setIsLoading] = useState(true);
   const [enabled, setEnabled] = useState(false);
-  const [times, setTimes] = useState<Time[]>([{ hour: 10, minute: 0 }, { hour: 16, minute: 0 }]);
+  const [times, setTimes] = useState<Time[]>(() => {
+    const start = Math.max(0, Math.min(23, config.startHour));
+    const end = Math.max(0, Math.min(23, config.endHour));
+    const interval = Math.max(15, Math.min(180, config.intervalMinutes));
+    const out: Time[] = [];
+    const startMin = start * 60;
+    const endMin = end * 60;
+    for (let t = startMin; t <= endMin; t += interval) {
+      out.push({ hour: Math.floor(t / 60), minute: t % 60 });
+    }
+    return out.length ? out : [{ hour: 10, minute: 0 }];
+  });
   const [newTime, setNewTime] = useState('12:00');
   const [scheduledIds, setScheduledIds] = useState<string[]>([]);
 
@@ -79,7 +91,7 @@ export default function ReminderOracle(props: OracleComponentProps) {
     const ids: string[] = [];
     for (const t of times) {
       const id = await Notifications.scheduleNotificationAsync({
-        content: { title: 'Reminder', body: 'Time to check in' },
+          content: { title: 'Reminder', body: config.message },
         trigger: { hour: t.hour, minute: t.minute, repeats: true },
       });
       ids.push(id);
@@ -132,7 +144,7 @@ export default function ReminderOracle(props: OracleComponentProps) {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <Bell size={18} color={colors.accent} />
-        <Text style={styles.title}>Reminder Skeleton</Text>
+        <Text style={styles.title}>{config.title}</Text>
       </View>
 
       <View style={styles.card}>
