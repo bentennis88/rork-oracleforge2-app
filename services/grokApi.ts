@@ -1,6 +1,6 @@
-// services/grokApi.ts
 import Anthropic from '@anthropic-ai/sdk';
 import Constants from 'expo-constants';
+import type { OracleConfig, OracleType } from '@/oracles/types';
 
 // Try multiple ways to get the API key (Expo runtime varies by platform / build).
 // NOTE: Do NOT hardcode API keys here. Use `.env` + `app.config.js` -> `expo.extra`.
@@ -13,233 +13,224 @@ const API_KEY =
   process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY ||
   '';
 
-console.log('[GrokAPI] API Key loaded:', API_KEY ? 'Yes ✓' : 'No ✗');
-console.log('[GrokAPI] API Key length:', API_KEY ? API_KEY.length : 0);
-
 if (!API_KEY) {
-  console.error(
-    '[GrokAPI] ⚠️  No API key found! Add EXPO_PUBLIC_ANTHROPIC_API_KEY to your .env file'
-  );
+  console.error('[GrokAPI] ⚠️  No API key found! Add EXPO_PUBLIC_ANTHROPIC_API_KEY to your .env file');
 }
 
-const anthropic = new Anthropic({
-  apiKey: API_KEY,
-});
+const anthropic = new Anthropic({ apiKey: API_KEY });
 
-function preprocessGeneratedCode(raw: string): string {
-  const stripMarkdownCodeFences = (input: string): string => {
-    const s = (input || '').trim();
+type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
-    // Prefer extracting the longest fenced code block (Claude sometimes wraps code in ```javascript ... ```).
-    const fenceRe = /```[ \t]*([a-zA-Z0-9_-]+)?[ \t]*\r?\n([\s\S]*?)\r?\n?```/g;
-    const matches = Array.from(s.matchAll(fenceRe));
-    if (matches.length > 0) {
-      const best = matches.reduce((acc, cur) => {
-        const curBody = cur[2] ?? '';
-        const accBody = acc[2] ?? '';
-        return curBody.length > accBody.length ? cur : acc;
-      });
-      return (best[2] ?? '').trim();
-    }
+export type GenerateOracleConfigResult = {
+  config: OracleConfig;
+  conversationHistory: ChatMessage[];
+};
 
-    // If we have a starting fence but no ending fence, drop the first fence line and any trailing ``` at EOF.
-    if (s.startsWith('```')) {
-      const firstNewline = s.indexOf('\n');
-      const withoutFirstLine = firstNewline >= 0 ? s.slice(firstNewline + 1) : '';
-      return withoutFirstLine.replace(/\r?\n?```[ \t]*$/m, '').trim();
-    }
+const SYSTEM_PROMPT = `You are OracleForge's config generator.
 
-    // Some models put ``` on same line as content; handle that too.
-    const looseFence = s.match(/```[ \t]*([a-zA-Z0-9_-]+)?[ \t]*\r?\n?([\s\S]*?)```/);
-    if (looseFence) return (looseFence[2] ?? '').trim();
+Your job: output EXACTLY ONE JSON object describing an OracleConfig.
+You MUST NOT output code, JSX, markdown fences, comments, or explanations.
 
-    return s;
+CRITICAL OUTPUT RULES:
+- Output must be valid JSON that succeeds with JSON.parse(output).
+- Output must be a single JSON object (not an array).
+- No trailing commas. Use double quotes for all keys/strings.
+- Do NOT wrap in \`\`\` fences. Do NOT include any extra text.
+
+SCHEMA (OracleConfig):
+- Common fields:
+  - "id": string (use "draft")
+  - "title": string
+  - "description": string (optional)
+  - "type": "tracker" | "reminder" | "calculator"
+
+- ReminderOracleConfig (type="reminder"):
+  - "message": string
+  - "startHour": number (0-23)
+  - "endHour": number (0-23, >= startHour recommended)
+  - "intervalMinutes": number (15-180)
+
+- TrackerOracleConfig (type="tracker"):
+  - "unit": string
+  - "dailyGoal": number (> 0)
+  - "incrementOptions": number[] (1-8 items, each > 0)
+  - "chartWindowDays": number (7 recommended)
+
+- CalculatorOracleConfig (type="calculator"):
+  - "inputs": [{ "key": string, "label": string, "unit"?: string, "defaultValue"?: number }]
+  - "formula": string
+    - Allowed tokens: numbers, input keys (like a,b,c), + - * / **, parentheses, whitespace
+
+DEFAULTS (use if user is vague):
+- tracker: unit "", dailyGoal 10, incrementOptions [1,2,4], chartWindowDays 7
+- reminder: message "Reminder", startHour 8, endHour 18, intervalMinutes 60
+- calculator: 3 inputs (a,b,c) and formula "(a + b + c)"
+
+Choose the type that best matches the user's prompt.`;
+
+function clamp(n: number, min: number, max: number) {
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, n));
+}
+
+function ensureString(v: unknown, fallback: string) {
+  return typeof v === 'string' && v.trim().length ? v : fallback;
+}
+
+function normalizeOracleConfig(raw: any): OracleConfig {
+  const type = raw?.type as OracleType;
+  const base = {
+    id: ensureString(raw?.id, 'draft'),
+    title: ensureString(raw?.title, 'Oracle'),
+    description: typeof raw?.description === 'string' ? raw.description : undefined,
+    type,
   };
 
-  // Remove markdown code fences if present (robust to \r\n and language tags).
-  let cleanCode = stripMarkdownCodeFences(raw);
+  if (type === 'reminder') {
+    return {
+      ...base,
+      type: 'reminder',
+      message: ensureString(raw?.message, 'Reminder'),
+      startHour: clamp(Number(raw?.startHour ?? 8), 0, 23),
+      endHour: clamp(Number(raw?.endHour ?? 18), 0, 23),
+      intervalMinutes: clamp(Number(raw?.intervalMinutes ?? 60), 15, 180),
+    };
+  }
 
-  // Fix common Babel issues with template literals used as AsyncStorage keys.
-  // Example: AsyncStorage.setItem(`oracle_${props.oracleId}_data`, ...)
-  // ->       AsyncStorage.setItem('oracle_' + props.oracleId + '_data', ...)
-  cleanCode = cleanCode.replace(
-    /AsyncStorage\.(getItem|setItem|removeItem)\s*\(\s*`([^`]*?)`/g,
-    (match, method, templateBody: string) => {
-      if (!templateBody.includes('${')) return match;
-      const parts = templateBody.split(/(\$\{[^}]+\})/g).filter(Boolean);
-      const expr = parts
-        .map(p => {
-          const m = p.match(/^\$\{([\s\S]+)\}$/);
-          if (m) return `(${m[1].trim()})`;
-          return `'${p.replace(/'/g, "\\'")}'`;
-        })
-        .join(' + ');
-      return `AsyncStorage.${method}(${expr}`;
-    }
-  );
+  if (type === 'calculator') {
+    const inputsRaw = Array.isArray(raw?.inputs) ? raw.inputs : [];
+    const inputs = inputsRaw
+      .map((i: any) => ({
+        key: ensureString(i?.key, ''),
+        label: ensureString(i?.label, ''),
+        unit: typeof i?.unit === 'string' && i.unit.trim().length ? i.unit : undefined,
+        defaultValue: typeof i?.defaultValue === 'number' && Number.isFinite(i.defaultValue) ? i.defaultValue : undefined,
+      }))
+      .filter((i: any) => i.key && i.label)
+      .slice(0, 8);
 
-  return cleanCode.trim();
+    return {
+      ...base,
+      type: 'calculator',
+      inputs: inputs.length ? inputs : [{ key: 'a', label: 'A', defaultValue: 10 }, { key: 'b', label: 'B', defaultValue: 5 }, { key: 'c', label: 'C', defaultValue: 2 }],
+      formula: ensureString(raw?.formula, '(a + b + c)'),
+    };
+  }
+
+  // Default to tracker
+  const incRaw = Array.isArray(raw?.incrementOptions) ? raw.incrementOptions : [1, 2, 4];
+  const incrementOptions = incRaw
+    .map((n: any) => (typeof n === 'number' ? n : parseFloat(String(n))))
+    .filter((n: number) => Number.isFinite(n) && n > 0)
+    .slice(0, 8);
+
+  return {
+    ...base,
+    type: 'tracker',
+    unit: typeof raw?.unit === 'string' ? raw.unit : '',
+    dailyGoal: clamp(Number(raw?.dailyGoal ?? 10), 1, 1_000_000),
+    incrementOptions: incrementOptions.length ? incrementOptions : [1, 2, 4],
+    chartWindowDays: clamp(Number(raw?.chartWindowDays ?? 7), 3, 30),
+  };
 }
 
-const SYSTEM_PROMPT = `You are an expert OracleForge React Native component generator. Generate complete, working, production-ready React Native "oracle" components.
-
-ABSOLUTE OUTPUT RULES (MUST FOLLOW):
-- Return ONLY the component code. NO markdown, NO explanations, NO backticks.
-- Output must start with imports and end with a default export.
-- The code MUST compile in Expo/React Native without edits.
-- All JSX tags must be closed. All braces/parentheses/quotes must be balanced.
-- StyleSheet objects must be valid JS (commas between entries).
-
-EVAL-SAFE (CRITICAL):
-- Your code will be dynamically transpiled and executed.
-- NO top-level await.
-- Async/await is allowed ONLY inside async functions.
-- For mount-time async work: use useEffect(() => { (async function () { ... })(); }, []) OR Promise.then/catch inside useEffect.
-
-PROPS:
-Component receives props: { userId, oracleId, firebaseService }
-
-ALLOWED IMPORTS (use only these, include all you use):
-- React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-- View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet, Alert, Dimensions, Switch, Modal, ActivityIndicator from 'react-native'
-- AsyncStorage from '@react-native-async-storage/async-storage'
-- * as Notifications from 'expo-notifications'
-- { LineChart, BarChart, PieChart } from 'react-native-chart-kit'
-- Icons from 'lucide-react-native'
-
-MANDATORY FEATURES (EVERY ORACLE MUST INCLUDE ALL):
-1) PERSISTENCE (AsyncStorage + Firestore logs for trackers)
-- Always persist core state with AsyncStorage.
-- Use STRING CONCATENATION for AsyncStorage keys (NO template literals):
-  const key = 'oracle_' + props.oracleId + '_data';
-  await AsyncStorage.setItem(key, JSON.stringify(data));
-  const saved = await AsyncStorage.getItem(key);
-- For trackers (water/habit/workout/mood/finance/etc.) also log events via:
-  await props.firebaseService.addOracleLog(props.oracleId, { type, value, timestamp, date, metadata });
-  const logs = await props.firebaseService.getOracleLogs(props.oracleId, { startDate, endDate, type, limit });
-
-2) NOTIFICATIONS (expo-notifications)
-- Include an opt-in reminders system.
-- Request permissions on mount.
-- Provide UI to enable/disable reminders.
-- Schedule notifications when enabled, cancel them when disabled.
-
-3) CHART (react-native-chart-kit)
-- Include at least one chart using REAL data from state/logs (not placeholder arrays).
-- Use const screenWidth = Dimensions.get('window').width;
-- Use chartConfig with string concatenation for rgba colors (avoid template literals).
-
-COMPLEX LOGIC (MUST BE REAL, NOT ECHO):
-Include at least THREE:
-- Streaks (consecutive days)
-- Projections/forecasting (ETA, trend, weekly projection)
-- Rolling metrics (7-day avg / moving avg)
-- Multi-session memory (persist settings + derived summaries)
-- Validation/parsing (bounds, numeric parsing, dedupe)
-
-UI REQUIREMENTS (VARIED + HIGH-TECH):
-- Use a mix of cards + lists/grids (not a single plain form).
-- Use StyleSheet with dark surfaces + neon accents + subtle shadows/elevation.
-- Include loading states, error states, and empty states.
-- Use at least 3 icons meaningfully.
-
-REFERENCE: WATER REMINDER ORACLE
-- Custom schedule: hourly (8am–6pm) OR custom times list.
-- Log water intake events to Firestore (type: 'water_intake', value: ml, date: YYYY-MM-DD).
-- Chart last 7 days intake vs goal.
-- Streak = consecutive days meeting goal.
-- Projection = at current pace, estimated time to hit goal today and/or weekly projection.
-
-FINAL CHECK BEFORE OUTPUT:
-- Imports correct and only from allowed list
-- JSX closed, quotes/braces balanced, StyleSheet valid commas
-- NO top-level await
-- Includes AsyncStorage + notifications + chart + tracker logs (when applicable)
-
-Return ONLY the complete component code starting with imports.`;
-
-interface GenerateResult {
-  code: string;
-  conversationHistory: Array<{ role: string; content: string }>;
+function assertOracleConfig(config: OracleConfig) {
+  if (!config || typeof config !== 'object') throw new Error('Config is not an object');
+  if (config.type !== 'tracker' && config.type !== 'reminder' && config.type !== 'calculator') {
+    throw new Error('Invalid config.type');
+  }
+  if (typeof config.id !== 'string' || typeof config.title !== 'string') {
+    throw new Error('Missing required base fields');
+  }
 }
 
-export async function generateOracleCode(
+async function callForJson(messages: ChatMessage[]) {
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 1200,
+    system: SYSTEM_PROMPT,
+    messages,
+  });
+
+  const text = response.content
+    .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+    .map(c => c.text)
+    .join('\n')
+    .trim();
+
+  return text;
+}
+
+export async function generateOracleConfig(
   prompt: string,
-  conversationHistory: Array<{ role: string; content: string }> = []
-): Promise<GenerateResult> {
-  try {
-    console.log('[GrokAPI] Generating oracle for prompt:', prompt);
+  conversationHistory: ChatMessage[] = []
+): Promise<GenerateOracleConfigResult> {
+  if (!API_KEY) throw new Error('Missing Anthropic API key');
+  const messages: ChatMessage[] = [
+    ...conversationHistory,
+    {
+      role: 'user',
+      content: `User prompt: ${JSON.stringify(prompt)}\n\nReturn ONLY the JSON OracleConfig object.`,
+    },
+  ];
 
-    const messages = [
-      ...conversationHistory,
-      {
-        role: 'user' as const,
-        content: `Generate a React Native component for: "${prompt}"\n\nMake it functional with persistence, beautiful UI, and proper error handling. Return ONLY the code. IMPORTANT: Use string concatenation (+ operator) instead of template literals for AsyncStorage keys.`
-      }
-    ];
-
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
-      system: SYSTEM_PROMPT,
-      messages,
-    });
-
-    const code = response.content
-      .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-      .map(c => c.text)
-      .join('\n');
-
-    const cleanCode = preprocessGeneratedCode(code);
-
-    console.log('[GrokAPI] Code cleaned, length:', cleanCode.length);
-
-    return {
-      code: cleanCode.trim(),
-      conversationHistory: [...messages, { role: 'assistant', content: code }]
-    };
-  } catch (error: any) {
-    console.error('[GrokAPI] Generation error:', error);
-    throw new Error(`Failed to generate oracle: ${error.message}`);
+  // Strict parse enforcement: JSON.parse must succeed; otherwise we ask the model to retry.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const raw = await callForJson(messages);
+    try {
+      const parsed = JSON.parse(raw);
+      const config = normalizeOracleConfig(parsed);
+      assertOracleConfig(config);
+      return { config, conversationHistory: [...messages, { role: 'assistant', content: raw }] };
+    } catch (e: any) {
+      const errMsg = e?.message ? String(e.message) : String(e);
+      messages.push({
+        role: 'user',
+        content:
+          `Your previous response failed JSON.parse with error: ${JSON.stringify(errMsg)}.\n` +
+          `Return ONLY valid JSON (no markdown, no extra text).`,
+      });
+    }
   }
+
+  throw new Error('Failed to generate a valid JSON OracleConfig');
 }
 
-export async function refineOracleCode(
-  currentCode: string,
+export async function refineOracleConfig(
+  currentConfig: OracleConfig,
   feedback: string,
-  conversationHistory: Array<{ role: string; content: string }> = []
-): Promise<GenerateResult> {
-  try {
-    console.log('[GrokAPI] Refining with feedback:', feedback);
+  conversationHistory: ChatMessage[] = []
+): Promise<GenerateOracleConfigResult> {
+  if (!API_KEY) throw new Error('Missing Anthropic API key');
+  const messages: ChatMessage[] = [
+    ...conversationHistory,
+    {
+      role: 'user',
+      content:
+        `Current OracleConfig (JSON):\n${JSON.stringify(currentConfig)}\n\n` +
+        `User feedback: ${JSON.stringify(feedback)}\n\n` +
+        `Update the config accordingly. Return ONLY the JSON OracleConfig object.`,
+    },
+  ];
 
-    const messages = [
-      ...conversationHistory,
-      {
-        role: 'user' as const,
-        content: `Current code:\n\`\`\`\n${currentCode}\n\`\`\`\n\nUser feedback: "${feedback}"\n\nUpdate the component. Return ONLY the complete updated code. Use string concatenation (+ operator) for AsyncStorage keys, not template literals.`
-      }
-    ];
-
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
-      system: SYSTEM_PROMPT,
-      messages,
-    });
-
-    const code = response.content
-      .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-      .map(c => c.text)
-      .join('\n');
-
-    const cleanCode = preprocessGeneratedCode(code);
-
-    return {
-      code: cleanCode.trim(),
-      conversationHistory: [...messages, { role: 'assistant', content: code }]
-    };
-  } catch (error: any) {
-    console.error('[GrokAPI] Refinement error:', error);
-    throw new Error(`Failed to refine oracle: ${error.message}`);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const raw = await callForJson(messages);
+    try {
+      const parsed = JSON.parse(raw);
+      const config = normalizeOracleConfig(parsed);
+      assertOracleConfig(config);
+      return { config, conversationHistory: [...messages, { role: 'assistant', content: raw }] };
+    } catch (e: any) {
+      const errMsg = e?.message ? String(e.message) : String(e);
+      messages.push({
+        role: 'user',
+        content:
+          `Your previous response failed JSON.parse with error: ${JSON.stringify(errMsg)}.\n` +
+          `Return ONLY valid JSON (no markdown, no extra text).`,
+      });
+    }
   }
+
+  throw new Error('Failed to refine into a valid JSON OracleConfig');
 }
+
