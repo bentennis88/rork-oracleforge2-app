@@ -43,6 +43,7 @@ export default function TrackerOracle(props: { config: TrackerOracleConfig }) {
   const title = String(config?.title || 'Tracker');
   const unit = String(config?.unit || '');
   const initialGoal = clamp(Number(config?.dailyGoal ?? 10), 1, 1_000_000);
+  const chartWindowDays = clamp(Number(config?.chartWindowDays ?? 7), 3, 30);
   const increments = useMemo(() => {
     const raw = Array.isArray(config?.incrementOptions) ? config!.incrementOptions : [1, 5, 10];
     const cleaned = raw
@@ -54,6 +55,7 @@ export default function TrackerOracle(props: { config: TrackerOracleConfig }) {
 
   const storageKey = 'oracle_' + id + '_tracker';
   const screenWidth = Dimensions.get('window').width;
+  const chartWidth = Math.max(260, screenWidth - 56);
 
   const [isLoading, setIsLoading] = useState(true);
   const [goal, setGoal] = useState(initialGoal);
@@ -145,19 +147,23 @@ export default function TrackerOracle(props: { config: TrackerOracleConfig }) {
     return clamp(todayValue / safeGoal, 0, 1);
   }, [goal, todayValue]);
 
-  const weekly = useMemo(() => {
+  const chartSeries = useMemo(() => {
     const end = new Date();
     const labels: string[] = [];
     const data: number[] = [];
-    for (let i = 6; i >= 0; i--) {
+    for (let i = chartWindowDays - 1; i >= 0; i--) {
       const d = new Date(end);
       d.setDate(end.getDate() - i);
       const key = getDateKey(d);
-      labels.push(['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.getDay()]);
+      if (chartWindowDays <= 7) {
+        labels.push(['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.getDay()]);
+      } else {
+        labels.push(String(d.getMonth() + 1) + '/' + String(d.getDate()));
+      }
       data.push(Number(history[key] || 0));
     }
     return { labels, data };
-  }, [history]);
+  }, [chartWindowDays, history]);
 
   if (isLoading) {
     return (
@@ -228,11 +234,11 @@ export default function TrackerOracle(props: { config: TrackerOracleConfig }) {
 
       {/* Weekly chart */}
       <View style={styles.card}>
-        <Text style={styles.sectionLabel}>Weekly chart</Text>
-        <Text style={styles.muted}>Totals per day (last 7 days)</Text>
+        <Text style={styles.sectionLabel}>History chart</Text>
+        <Text style={styles.muted}>Totals per day (last {chartWindowDays} days)</Text>
         <LineChart
-          data={{ labels: weekly.labels, datasets: [{ data: weekly.data }] }}
-          width={screenWidth - 56}
+          data={{ labels: chartSeries.labels, datasets: [{ data: chartSeries.data }] }}
+          width={chartWidth}
           height={220}
           chartConfig={{
             backgroundColor: colors.surface,
