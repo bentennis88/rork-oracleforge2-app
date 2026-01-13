@@ -3,6 +3,8 @@ import { LayoutGrid, Plus, User } from "lucide-react-native";
 import React from "react";
 import { Platform } from "react-native";
 import colors from "@/constants/colors";
+// NOTE: We intentionally do NOT wrap Tabs with OraclesProvider here because the app is already
+// wrapped at the root (`app/_layout.tsx`). Double-wrapping would create a second store instance.
 
 export default function TabLayout() {
   return (
