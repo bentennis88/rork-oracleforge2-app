@@ -654,7 +654,10 @@ const preValidateWithAcornJsx = (code: string): { ok: true } | { ok: false; mess
 
 const buildAutoFixFeedback = (errorMessage: string): string => {
   const msg = (errorMessage || '').toString();
-  const locMatch = msg.match(/at\s+(\d+):(\d+)/);
+  const locMatch =
+    msg.match(/at\s+(\d+):(\d+)/) || // our own pre-validate format
+    msg.match(/\((\d+):(\d+)\)/) || // Babel parser format: (... (419:1))
+    msg.match(/:(\d+):(\d+)/); // fallback (file:line:col)
   const line = locMatch ? Number(locMatch[1]) : undefined;
   const col = locMatch ? Number(locMatch[2]) : undefined;
 
@@ -709,14 +712,10 @@ const transpileCode = (code: string, promptText: string): { transpiled: string; 
   } catch (error) {
     console.error('[Babel] Transpilation error:', error);
     const errorMsg = error instanceof Error ? error.message : String(error);
-    
-    if (errorMsg.includes('Unexpected token')) {
-      throw new Error('Invalid JSX syntax. Check for unclosed tags or brackets.');
-    } else if (errorMsg.includes('reserved word')) {
-      throw new Error('Code contains reserved JavaScript keywords in invalid positions.');
-    } else {
-      throw new Error(`Transpilation failed: ${errorMsg}`);
-    }
+
+    // IMPORTANT: preserve the original parser error message (includes line/column like (419:1)).
+    // This allows the auto-fix prompt to be precise.
+    throw new Error(`Transpilation failed: ${errorMsg}`);
   }
 };
 
@@ -1090,7 +1089,10 @@ export default function DynamicOracleRenderer({
           const attempts = autoFixAttemptedRef.current[autoFixKey] || 0;
 
           if (looksLikeTranspileOrSyntax && attempts < 3) {
-            let current = code;
+            // Use the cleaned code that Babel is actually trying to compile.
+            // This makes the fix request much more deterministic.
+            const cleanedForFix = cleanAiGeneratedCode(code, promptText);
+            let current = cleanedForFix;
             let lastErrMsg = errorMessage;
 
             for (let i = attempts; i < 3; i++) {
