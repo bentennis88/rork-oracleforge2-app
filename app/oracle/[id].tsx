@@ -207,7 +207,7 @@ export default function OracleDetailScreen() {
       
       setRenderKey(prev => prev + 1);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      showToastMessage('Oracle refined');
+      showToastMessage('Updated');
       
       console.log('[Refine] Oracle updated successfully');
     } catch (error) {

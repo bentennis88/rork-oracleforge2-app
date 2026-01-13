@@ -19,8 +19,10 @@ import { useOracles } from '@/contexts/OracleContext';
 import { useAuth } from '@/hooks/useAuth';
 import DynamicOracleRenderer from '@/components/DynamicOracleRenderer';
 import { refineOracleCode } from '@/services/grokApi';
+import firebaseService from '@/services/firebaseService';
 
 interface OracleConfig {
+  id?: string;
   name: string;
   description: string;
   code?: string;
@@ -197,7 +199,23 @@ export default function PreviewOracleScreen() {
       setRefineMessages(prev => [...prev, successMessage]);
       
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      showToastMessage('Oracle refined');
+      showToastMessage('Updated');
+
+      // If this preview is tied to an existing oracle id, update the saved code remotely too.
+      const oracleIdToUpdate = activeConfig.id || (typeof (params as any).oracleId === 'string' ? (params as any).oracleId : '');
+      if (oracleIdToUpdate) {
+        try {
+          await firebaseService.updateOracle(oracleIdToUpdate, {
+            code: result.code,
+            generatedCode: result.code,
+            prompt: updatedPrompt,
+            description: updatedPrompt.substring(0, 100),
+            conversationHistory: result.conversationHistory,
+          });
+        } catch (e) {
+          console.log('[Preview Refine] Firebase update skipped/failed:', e);
+        }
+      }
       
       console.log('[Preview Refine] Oracle updated successfully');
     } catch (error) {
