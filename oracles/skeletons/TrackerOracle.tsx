@@ -1,35 +1,92 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet, Alert, Dimensions } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Dimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LineChart } from 'react-native-chart-kit';
-import { TrendingUp, Plus } from 'lucide-react-native';
 import colors from '@/constants/colors';
-import firebaseService from '@/services/firebaseService';
 import { TrackerOracleConfig } from '../types';
 
+type Persisted = {
+  v: 1;
+  goal: number;
+  dateKey: string; // YYYY-MM-DD
+  todayValue: number;
+  history: Record<string, number>; // YYYY-MM-DD -> total
+};
+
+function clamp(n: number, min: number, max: number) {
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, n));
+}
+
+function getDateKey(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+function sanitizeHistory(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw as any)) {
+    if (typeof k !== 'string') continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(k)) continue;
+    const n = typeof v === 'number' ? v : parseFloat(String(v));
+    if (!Number.isFinite(n) || n < 0) continue;
+    out[k] = n;
+  }
+  return out;
+}
+
 export default function TrackerOracle(props: { config: TrackerOracleConfig }) {
-  const { config } = props;
-  const storageKey = 'oracle_' + config.id + '_tracker';
+  const config = props?.config;
+
+  // Safe defaults + defensive checks
+  const id = String(config?.id || 'tracker');
+  const title = String(config?.title || 'Tracker');
+  const unit = String(config?.unit || '');
+  const initialGoal = clamp(Number(config?.dailyGoal ?? 10), 1, 1_000_000);
+  const increments = useMemo(() => {
+    const raw = Array.isArray(config?.incrementOptions) ? config!.incrementOptions : [1, 5, 10];
+    const cleaned = raw
+      .map(n => (typeof n === 'number' ? n : parseFloat(String(n))))
+      .filter(n => Number.isFinite(n) && n > 0)
+      .slice(0, 8);
+    return cleaned.length ? cleaned : [1, 5, 10];
+  }, [config]);
+
+  const storageKey = 'oracle_' + id + '_tracker';
   const screenWidth = Dimensions.get('window').width;
 
   const [isLoading, setIsLoading] = useState(true);
-  const [goal, setGoal] = useState(config.dailyGoal);
+  const [goal, setGoal] = useState(initialGoal);
+  const [dateKey, setDateKey] = useState(() => getDateKey(new Date()));
   const [todayValue, setTodayValue] = useState(0);
-  const [input, setInput] = useState(String(config.incrementOptions[0] || 1));
   const [history, setHistory] = useState<Record<string, number>>({});
 
-  const todayKey = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Load persisted state
   useEffect(() => {
     (async () => {
       try {
         const saved = await AsyncStorage.getItem(storageKey);
-        if (saved) {
-          const data = JSON.parse(saved);
-          if (typeof data.goal === 'number') setGoal(data.goal);
-          if (typeof data.todayValue === 'number') setTodayValue(data.todayValue);
-          if (data.history && typeof data.history === 'object') setHistory(data.history);
-        }
+        if (!saved) return;
+        const raw = JSON.parse(saved);
+        const loaded: Persisted | null =
+          raw && typeof raw === 'object' && raw.v === 1 ? (raw as Persisted) : null;
+        if (!loaded) return;
+
+        const nowKey = getDateKey(new Date());
+        const loadedHist = sanitizeHistory(loaded.history);
+        const loadedGoal = clamp(Number(loaded.goal), 1, 1_000_000);
+        const loadedDateKey = typeof loaded.dateKey === 'string' ? loaded.dateKey : nowKey;
+        const loadedToday = clamp(Number(loaded.todayValue), 0, 1_000_000);
+
+        setGoal(loadedGoal);
+        setHistory(loadedHist);
+        setDateKey(nowKey);
+
+        // If the saved day differs from today, use history for today (or 0).
+        if (loadedDateKey !== nowKey) setTodayValue(Number(loadedHist[nowKey] || 0));
+        else setTodayValue(loadedToday);
       } catch (e) {
         console.log('[TrackerOracle] load failed', e);
       } finally {
@@ -38,56 +95,69 @@ export default function TrackerOracle(props: { config: TrackerOracleConfig }) {
     })();
   }, [storageKey]);
 
+  // Keep dateKey current if app stays open across midnight
+  useEffect(() => {
+    const t = setInterval(() => {
+      const nowKey = getDateKey(new Date());
+      setDateKey(prev => (prev === nowKey ? prev : nowKey));
+    }, 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Ensure todayValue reflects history for current dateKey
+  useEffect(() => {
+    const v = Number(history[dateKey] || 0);
+    if (Number.isFinite(v) && v !== todayValue) setTodayValue(v);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateKey]);
+
+  // Persist state (debounced)
   useEffect(() => {
     if (isLoading) return;
-    (async () => {
-      try {
-        await AsyncStorage.setItem(storageKey, JSON.stringify({ goal, todayValue, history }));
-      } catch (e) {
-        console.log('[TrackerOracle] save failed', e);
-      }
-    })();
-  }, [goal, todayValue, history, isLoading, storageKey]);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      (async () => {
+        try {
+          const payload: Persisted = { v: 1, goal, dateKey, todayValue, history };
+          await AsyncStorage.setItem(storageKey, JSON.stringify(payload));
+        } catch (e) {
+          console.log('[TrackerOracle] save failed', e);
+        }
+      })();
+    }, 250);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [dateKey, goal, history, isLoading, storageKey, todayValue]);
 
-  const add = useCallback(async () => {
-    const n = parseInt(input.replace(/[^0-9]/g, ''), 10);
-    const amt = Number.isFinite(n) && n > 0 ? n : 1;
-    const next = todayValue + amt;
-    setTodayValue(next);
-    setHistory(prev => ({ ...prev, [todayKey]: next }));
+  const add = useCallback(
+    (amount: number) => {
+      const amt = clamp(Number(amount), 1, 1_000_000);
+      const next = clamp(todayValue + amt, 0, 1_000_000);
+      setTodayValue(next);
+      setHistory(prev => ({ ...prev, [dateKey]: next }));
+    },
+    [dateKey, todayValue]
+  );
 
-    // Firestore log (optional; safe if firebaseService is provided)
-    try {
-      await firebaseService.addOracleLog(config.id, {
-        type: 'tracker_entry',
-        value: { amount: amt, unit: config.unit },
-        timestamp: new Date().toISOString(),
-        date: todayKey,
-      });
-    } catch (e) {
-      console.log('[TrackerOracle] addOracleLog failed', e);
-    }
-  }, [config.id, config.unit, input, todayKey, todayValue]);
+  const progress = useMemo(() => {
+    const safeGoal = clamp(goal, 1, 1_000_000);
+    return clamp(todayValue / safeGoal, 0, 1);
+  }, [goal, todayValue]);
 
-  const last7 = useMemo(() => {
+  const weekly = useMemo(() => {
     const end = new Date();
     const labels: string[] = [];
     const data: number[] = [];
-    const windowDays = Math.max(3, Math.min(30, config.chartWindowDays));
-    for (let i = windowDays - 1; i >= 0; i--) {
+    for (let i = 6; i >= 0; i--) {
       const d = new Date(end);
       d.setDate(end.getDate() - i);
-      const key = d.toISOString().split('T')[0];
+      const key = getDateKey(d);
       labels.push(['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.getDay()]);
       data.push(Number(history[key] || 0));
     }
     return { labels, data };
-  }, [config.chartWindowDays, history]);
-
-  const progress = useMemo(() => {
-    if (goal <= 0) return 0;
-    return Math.min(1, todayValue / goal);
-  }, [goal, todayValue]);
+  }, [history]);
 
   if (isLoading) {
     return (
@@ -99,52 +169,69 @@ export default function TrackerOracle(props: { config: TrackerOracleConfig }) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Header */}
       <View style={styles.header}>
-        <TrendingUp size={18} color={colors.accent} />
-        <Text style={styles.title}>{config.title}</Text>
+        <View style={styles.headerDot} />
+        <Text style={styles.title} numberOfLines={1}>
+          {title}
+        </Text>
+        <View style={{ flex: 1 }} />
+        <Text style={styles.headerMeta}>{dateKey}</Text>
       </View>
 
+      {/* Progress bar */}
       <View style={styles.card}>
-        <Text style={styles.label}>Today</Text>
+        <Text style={styles.sectionLabel}>Progress</Text>
         <Text style={styles.metric}>
-          {todayValue} <Text style={styles.muted}> {config.unit} / {goal} {config.unit}</Text>
+          {todayValue}
+          <Text style={styles.muted}>
+            {unit ? ' ' + unit : ''} / {goal}
+            {unit ? ' ' + unit : ''}
+          </Text>
         </Text>
         <View style={styles.barOuter}>
           <View style={[styles.barInner, { width: Math.round(progress * 100) + '%' }]} />
         </View>
-
-        <View style={styles.row}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {config.incrementOptions.map((opt) => (
-              <TouchableOpacity
-                key={String(opt)}
-                style={[styles.chip, input === String(opt) && styles.chipActive]}
-                onPress={() => setInput(String(opt))}
-              >
-                <Text style={[styles.chipText, input === String(opt) && styles.chipTextActive]}>
-                  +{opt}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          <TouchableOpacity style={styles.button} onPress={add} activeOpacity={0.85}>
-            <Plus size={16} color={colors.background} />
-            <Text style={styles.buttonText}>Add</Text>
-          </TouchableOpacity>
+        <View style={styles.progressRow}>
+          <Text style={styles.muted}>{Math.round(progress * 100)}%</Text>
+          <Text style={styles.muted}>
+            Remaining: {Math.max(0, goal - todayValue)}
+            {unit ? ' ' + unit : ''}
+          </Text>
         </View>
+
+        {/* Add buttons */}
+        <Text style={[styles.sectionLabel, { marginTop: 14 }]}>Add</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+          {increments.map((opt, idx) => (
+            <View key={String(opt) + '_' + String(idx)} style={styles.chipWrap}>
+              <TouchableOpacity style={styles.chip} onPress={() => add(opt)} activeOpacity={0.85}>
+                <Text style={styles.chipText}>+{opt}</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </ScrollView>
 
         <TouchableOpacity
           style={styles.secondary}
-          onPress={() => Alert.alert('Goal', 'Change the goal in the oracle config (dailyGoal).')}
+          onPress={() =>
+            Alert.alert(
+              'Tracker Skeleton',
+              'This is a fixed skeleton. Edit the oracle config to change goal/unit/increments.'
+            )
+          }
+          activeOpacity={0.85}
         >
-          <Text style={styles.secondaryText}>Set Goal (skeleton)</Text>
+          <Text style={styles.secondaryText}>Edit via config</Text>
         </TouchableOpacity>
       </View>
 
+      {/* Weekly chart */}
       <View style={styles.card}>
-        <Text style={styles.label}>Last 7 Days</Text>
+        <Text style={styles.sectionLabel}>Weekly chart</Text>
+        <Text style={styles.muted}>Totals per day (last 7 days)</Text>
         <LineChart
-          data={{ labels: last7.labels, datasets: [{ data: last7.data }] }}
+          data={{ labels: weekly.labels, datasets: [{ data: weekly.data }] }}
           width={screenWidth - 56}
           height={220}
           chartConfig={{
@@ -157,7 +244,7 @@ export default function TrackerOracle(props: { config: TrackerOracleConfig }) {
             style: { borderRadius: 16 },
             propsForDots: { r: '4' },
           }}
-          style={{ borderRadius: 16 }}
+          style={{ borderRadius: 16, marginTop: 10 }}
         />
       </View>
     </ScrollView>
@@ -168,8 +255,18 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   content: { padding: 16, paddingBottom: 40 },
   center: { padding: 24, alignItems: 'center', justifyContent: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
-  title: { color: colors.text, fontSize: 16, fontWeight: '700' },
+
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  headerDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: colors.accent,
+    marginRight: 10,
+  },
+  title: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  headerMeta: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
+
   card: {
     backgroundColor: colors.background,
     borderWidth: 1,
@@ -178,9 +275,10 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 12,
   },
-  label: { color: colors.textSecondary, fontSize: 12, fontWeight: '700', marginBottom: 8 },
+  sectionLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: '800', marginBottom: 8 },
   metric: { color: colors.text, fontSize: 26, fontWeight: '900' },
   muted: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
+
   barOuter: {
     height: 10,
     borderRadius: 999,
@@ -191,7 +289,14 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   barInner: { height: 10, backgroundColor: colors.accent },
-  row: { flexDirection: 'row', gap: 10, marginTop: 12, alignItems: 'center' },
+  progressRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+
+  chips: { paddingVertical: 2, paddingRight: 6 },
+  chipWrap: { marginRight: 8 },
   chip: {
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -200,34 +305,17 @@ const styles = StyleSheet.create({
     borderColor: colors.surfaceBorder,
     backgroundColor: colors.surface,
   },
-  chipActive: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
-  },
-  chipText: { color: colors.textSecondary, fontWeight: '800', fontSize: 12 },
-  chipTextActive: { color: colors.background },
-  input: {
-    flex: 1,
-    backgroundColor: colors.surface,
+  chipText: { color: colors.text, fontWeight: '900', fontSize: 12 },
+
+  secondary: {
+    marginTop: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
     borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: colors.text,
+    backgroundColor: colors.surface,
   },
-  button: {
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.accent,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  buttonText: { color: colors.background, fontWeight: '800', fontSize: 13 },
-  secondary: { marginTop: 10, paddingVertical: 10, alignItems: 'center' },
-  secondaryText: { color: colors.accent, fontSize: 12, fontWeight: '700' },
+  secondaryText: { color: colors.accent, fontSize: 12, fontWeight: '800' },
 });
 
