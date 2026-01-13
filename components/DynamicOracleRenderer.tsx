@@ -19,6 +19,10 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
+// @ts-expect-error - acorn has no TS types in this project
+import * as acorn from 'acorn';
+// @ts-expect-error - acorn-jsx has no TS types in this project
+import jsx from 'acorn-jsx';
 import { 
   Check, Plus, Minus, Trash2, RefreshCw, Share2, ShoppingCart, Droplet, Flame, 
   TrendingUp, TrendingDown, Clock, Zap, Heart, Star, Calendar, Target, Award, 
@@ -32,7 +36,7 @@ import {
   CreditCard, Wallet, PiggyBank, Receipt, Calculator, Percent, Timer,
   Album, Hourglass, Watch, Sunrise, Sunset, Cloud, CloudRain, Snowflake,
   Wind, Thermometer, Umbrella, Briefcase, Building, Store, Truck, Car,
-  Bike, Plane, Train, Ship, Anchor, Flag, Map, Compass, Navigation, Globe,
+  Bike, Plane, Train, Ship, Anchor, Flag, Map as MapIcon, Compass, Navigation, Globe,
   Mountain, Trees, Flower, Leaf, Apple, Pizza, Utensils, Wine, Beer, Cake,
   IceCream, Pill, Stethoscope, Syringe, Bandage, Dumbbell, Trophy, Medal,
   Crown, Gem, Sparkles, Wand2, Lightbulb, Rocket, Puzzle, Gamepad, Dice5,
@@ -570,6 +574,13 @@ const cleanAiGeneratedCode = (input: string, promptText: string): string => {
   // Normalize line endings
   code = code.replace(/\r\n/g, '\n');
 
+  // Remove problematic invisible / invalid characters that often appear in AI output
+  code = code
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // zero-width chars
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, ''); // strip other control chars (keep tab/newline)
+
   // Ensure import lines end with semicolons (helps some parsers / transforms)
   code = code
     .split('\n')
@@ -582,7 +593,7 @@ const cleanAiGeneratedCode = (input: string, promptText: string): string => {
 
   // Fix a common AI JSX error: missing closing ">" on a single-line opening tag.
   // Only apply when the line looks "complete" (ends with } or ").
-  const jsxTags = ['View', 'Text', 'ScrollView', 'TouchableOpacity', 'TextInput'];
+  const jsxTags = ['View', 'Text', 'ScrollView', 'TouchableOpacity', 'TextInput', 'KeyboardAvoidingView'];
   code = code
     .split('\n')
     .map(line => {
@@ -596,6 +607,14 @@ const cleanAiGeneratedCode = (input: string, promptText: string): string => {
     })
     .join('\n');
 
+  // Add semicolons for common statement endings (very conservative)
+  code = code.replace(/(\bconst\b|\blet\b|\bvar\b)[^\n;]+(\n)/g, (m) => {
+    if (m.includes(';')) return m;
+    // Avoid touching destructuring or multiline declarations
+    if (m.includes('{') || m.includes('[') || m.includes('=>')) return m;
+    return m.trimEnd().replace(/\n$/, ';\n');
+  });
+
   // Naively balance braces if we're missing a small number at EOF (common truncated output issue).
   const open = (code.match(/\{/g) || []).length;
   const close = (code.match(/\}/g) || []).length;
@@ -607,11 +626,68 @@ const cleanAiGeneratedCode = (input: string, promptText: string): string => {
   return code.trim();
 };
 
+const preValidateWithAcornJsx = (code: string): { ok: true } | { ok: false; message: string; line?: number; column?: number } => {
+  // acorn-jsx cannot parse TypeScript syntax. Skip when it looks like TS/TSX.
+  const looksLikeTS =
+    /\binterface\b|\btype\b|\benum\b/.test(code) ||
+    /:\s*[A-Za-z_][A-Za-z0-9_<>,\s\[\]\|&]*/.test(code) ||
+    /<\s*[A-Za-z_][A-Za-z0-9_]*\s*>/.test(code); // generic angle brackets
+  if (looksLikeTS) return { ok: true };
+
+  try {
+    const Parser = (acorn as any).Parser.extend((jsx as any)());
+    Parser.parse(code, {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      allowReturnOutsideFunction: true,
+    });
+    return { ok: true };
+  } catch (e: any) {
+    return {
+      ok: false,
+      message: e?.message || String(e),
+      line: e?.loc?.line,
+      column: e?.loc?.column,
+    };
+  }
+};
+
+const buildAutoFixFeedback = (errorMessage: string): string => {
+  const msg = (errorMessage || '').toString();
+  const locMatch = msg.match(/at\s+(\d+):(\d+)/);
+  const line = locMatch ? Number(locMatch[1]) : undefined;
+  const col = locMatch ? Number(locMatch[2]) : undefined;
+
+  const lower = msg.toLowerCase();
+  let hint = 'Fix syntax errors in this code.';
+
+  if (lower.includes('unterminated') && lower.includes('jsx')) {
+    hint = 'Fix unterminated JSX (missing closing tag or missing ">").';
+  } else if (lower.includes('unexpected token')) {
+    hint = 'Fix unexpected token syntax error (missing bracket/brace/paren or invalid JSX).';
+  } else if (lower.includes('unclosed') || lower.includes('unmatched')) {
+    hint = 'Fix unclosed/unmatched brackets/braces/parentheses and JSX tags.';
+  } else if (lower.includes('pre-validate failed')) {
+    hint = 'Fix JSX/syntax issues detected by a pre-parser.';
+  }
+
+  if (line != null) {
+    return `${hint} The error appears near line ${line}${col != null ? `, column ${col}` : ''}.`;
+  }
+  return hint;
+};
+
 const transpileCode = (code: string, promptText: string): { transpiled: string; cleaned: string } => {
   try {
     console.log('[Babel] Starting transpilation...');
     const cleaned = cleanAiGeneratedCode(code, promptText);
     console.log('[Babel] Cleaned code preview:', cleaned.substring(0, 400));
+
+    const pre = preValidateWithAcornJsx(cleaned);
+    if (!pre.ok) {
+      const loc = pre.line != null ? ` at ${pre.line}:${pre.column ?? 0}` : '';
+      throw new Error(`Pre-validate failed${loc}: ${pre.message}`);
+    }
 
     const result = Babel.transform(cleaned, {
       presets: ['react', 'typescript'],
@@ -688,7 +764,7 @@ const createExecutionContext = () => {
     CreditCard, Wallet, PiggyBank, Receipt, Calculator, Percent, Timer,
     Album, Hourglass, Watch, Sunrise, Sunset, Cloud, CloudRain, Snowflake,
     Wind, Thermometer, Umbrella, Briefcase, Building, Store, Truck, Car,
-    Bike, Plane, Train, Ship, Anchor, Flag, Map, Compass, Navigation, Globe,
+    Bike, Plane, Train, Ship, Anchor, Flag, Map: MapIcon, Compass, Navigation, Globe,
     Mountain, Trees, Flower, Leaf, Apple, Pizza, Utensils, Wine, Beer, Cake,
     IceCream, Pill, Stethoscope, Syringe, Bandage, Dumbbell, Trophy, Medal,
     Crown, Gem, Sparkles, Wand2, Lightbulb, Rocket, Puzzle, Gamepad,
@@ -963,7 +1039,8 @@ export default function DynamicOracleRenderer({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [GeneratedComponent, setGeneratedComponent] = useState<React.ComponentType<any> | null>(null);
-  const autoFixAttemptedRef = useRef<Set<string>>(new Set());
+  // Use a plain object to avoid collisions with lucide's `Map` icon shadowing the global `Map`.
+  const autoFixAttemptedRef = useRef<Record<string, number>>({});
   
   const accent = config?.accentColor || '#0AFFE6';
   const promptText = (config?.description || config?.name || '').toString();
@@ -1010,40 +1087,57 @@ export default function DynamicOracleRenderer({
             errorMessage.includes('Unexpected token');
 
           const autoFixKey = `${code.length}:${code.slice(0, 80)}`;
+          const attempts = autoFixAttemptedRef.current[autoFixKey] || 0;
 
-          if (looksLikeTranspileOrSyntax && !autoFixAttemptedRef.current.has(autoFixKey)) {
-            autoFixAttemptedRef.current.add(autoFixKey);
-            console.log('[DynamicRenderer] Attempting auto-fix via Grok (syntax repair)...');
+          if (looksLikeTranspileOrSyntax && attempts < 3) {
+            let current = code;
+            let lastErrMsg = errorMessage;
 
-            try {
-              const fixed = await refineOracleCode(
-                code,
-                'Fix syntax errors in this code. Return ONLY the complete corrected code.',
-                []
-              );
+            for (let i = attempts; i < 3; i++) {
+              autoFixAttemptedRef.current[autoFixKey] = i + 1;
+              console.log('[DynamicRenderer] Attempting auto-fix via Grok (syntax repair)... attempt', i + 1);
 
-              if (cancelled) return;
-              console.log('[DynamicRenderer] Auto-fix returned code length:', fixed.code.length);
-              console.log('[DynamicRenderer] Auto-fix code preview:', fixed.code.substring(0, 400));
+              try {
+                const feedback = buildAutoFixFeedback(lastErrMsg);
 
-              const fixedComponent = createOracleComponent(fixed.code, promptText);
-              if (cancelled) return;
+                const fixed = await refineOracleCode(
+                  current,
+                  feedback + ' Return ONLY the complete corrected code.',
+                  []
+                );
 
-              if (fixedComponent) {
-                setGeneratedComponent(() => fixedComponent);
-                setError(null);
-                console.log('[DynamicRenderer] Auto-fix succeeded');
-              } else {
-                setGeneratedComponent(null);
-                setError(null);
-                console.log('[DynamicRenderer] Auto-fix produced no component, using fallback');
+                if (cancelled) return;
+                console.log('[DynamicRenderer] Auto-fix returned code length:', fixed.code.length);
+                console.log('[DynamicRenderer] Auto-fix code preview:', fixed.code.substring(0, 400));
+
+                current = fixed.code;
+
+                try {
+                  const fixedComponent = createOracleComponent(current, promptText);
+                  if (cancelled) return;
+
+                  if (fixedComponent) {
+                    setGeneratedComponent(() => fixedComponent);
+                    setError(null);
+                    console.log('[DynamicRenderer] Auto-fix succeeded');
+                  } else {
+                    setGeneratedComponent(null);
+                    setError(null);
+                    console.log('[DynamicRenderer] Auto-fix produced no component, using fallback');
+                  }
+
+                  setIsLoading(false);
+                  return;
+                } catch (e: any) {
+                  lastErrMsg = e instanceof Error ? e.message : String(e);
+                  console.log('[DynamicRenderer] Auto-fix attempt produced code that still fails:', lastErrMsg);
+                  // continue to next attempt
+                }
+              } catch (fixErr: any) {
+                lastErrMsg = fixErr instanceof Error ? fixErr.message : String(fixErr);
+                console.error('[DynamicRenderer] Auto-fix failed:', fixErr);
+                // continue to next attempt
               }
-
-              setIsLoading(false);
-              return;
-            } catch (fixErr: any) {
-              console.error('[DynamicRenderer] Auto-fix failed:', fixErr);
-              // continue into normal error handling below
             }
           }
           
