@@ -14,8 +14,8 @@ import {
 import { useRouter } from 'expo-router';
 import { 
   Hexagon, Plus, Search, X, 
-  Activity, Calculator, ListTodo, Bell, DollarSign, Heart, Briefcase, Box,
-  RefreshCw, Sparkles, Wand2, FileText,
+  Activity, Calculator, Bell, Box,
+  Sparkles, Wand2,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import colors from '@/constants/colors';
@@ -28,8 +28,25 @@ const categories: { key: string; label: string; icon: React.ComponentType<{ size
   { key: 'tracker', label: 'Trackers', icon: Activity },
   { key: 'calculator', label: 'Calculators', icon: Calculator },
   { key: 'reminder', label: 'Reminders', icon: Bell },
-  { key: 'other', label: 'Other', icon: FileText },
 ];
+
+function getOracleDescription(oracle: Oracle): string {
+  const { config } = oracle;
+  
+  if (config.type === 'tracker') {
+    return `Track ${config.metric} (${config.dailyGoal} ${config.unit}/day)`;
+  }
+  
+  if (config.type === 'reminder') {
+    return `${config.message} (every ${Math.floor(config.interval / 60)}h)`;
+  }
+  
+  if (config.type === 'calculator') {
+    return `Calculate: ${config.inputs.map(i => i.label).join(', ')}`;
+  }
+  
+  return 'Oracle';
+}
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -46,15 +63,14 @@ export default function DashboardScreen() {
     let result = oracles;
     
     if (selectedCategory !== 'all') {
-      result = result.filter(o => o.category.toLowerCase() === selectedCategory.toLowerCase());
+      result = result.filter(o => o.config.type === selectedCategory);
     }
     
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter(o => 
         o.title.toLowerCase().includes(query) ||
-        o.category.toLowerCase().includes(query) ||
-        o.content.toLowerCase().includes(query)
+        getOracleDescription(o).toLowerCase().includes(query)
       );
     }
     
@@ -64,8 +80,8 @@ export default function DashboardScreen() {
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = { all: oracles.length };
     oracles.forEach(o => {
-      const cat = o.category.toLowerCase();
-      counts[cat] = (counts[cat] || 0) + 1;
+      const type = o.config.type;
+      counts[type] = (counts[type] || 0) + 1;
     });
     return counts;
   }, [oracles]);
@@ -136,7 +152,7 @@ export default function DashboardScreen() {
           </View>
           <Text style={styles.emptyTitle}>Welcome to OracleForge</Text>
           <Text style={styles.emptyText}>
-            Create custom oracles for any purpose
+            Create custom oracles powered by AI
           </Text>
           <TouchableOpacity 
             style={styles.signInButton}
@@ -241,7 +257,7 @@ export default function DashboardScreen() {
             </View>
             <Text style={styles.emptyOraclesTitle}>No Oracles Yet</Text>
             <Text style={styles.emptyOraclesText}>
-              Create your first oracle to get started
+              Describe any tool in natural language and AI will build it for you
             </Text>
             <TouchableOpacity 
               style={styles.createButton}
@@ -278,9 +294,14 @@ export default function DashboardScreen() {
                     <X size={18} color={colors.error} />
                   </TouchableOpacity>
                 </View>
-                <Text style={styles.oracleCardCategory}>{oracle.category}</Text>
-                <Text style={styles.oracleCardContent} numberOfLines={2}>
-                  {oracle.content}
+                <View style={styles.oracleCardTypeRow}>
+                  {oracle.config.type === 'tracker' && <Activity size={14} color={colors.accent} />}
+                  {oracle.config.type === 'reminder' && <Bell size={14} color={colors.accent} />}
+                  {oracle.config.type === 'calculator' && <Calculator size={14} color={colors.accent} />}
+                  <Text style={styles.oracleCardType}>{oracle.config.type.toUpperCase()}</Text>
+                </View>
+                <Text style={styles.oracleCardDescription} numberOfLines={2}>
+                  {getOracleDescription(oracle)}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -552,15 +573,19 @@ const styles = StyleSheet.create({
   deleteButton: {
     padding: 4,
   },
-  oracleCardCategory: {
-    fontSize: 12,
-    color: colors.accent,
-    fontWeight: '500' as const,
+  oracleCardTypeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     marginBottom: 8,
-    textTransform: 'uppercase',
+  },
+  oracleCardType: {
+    fontSize: 11,
+    color: colors.accent,
+    fontWeight: '700' as const,
     letterSpacing: 0.5,
   },
-  oracleCardContent: {
+  oracleCardDescription: {
     fontSize: 14,
     color: colors.textSecondary,
     lineHeight: 20,
