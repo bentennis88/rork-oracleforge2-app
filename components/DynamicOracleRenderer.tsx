@@ -136,6 +136,15 @@ const stripMarkdownCodeFences = (input: string): string => {
   return s;
 };
 
+// Stage 2: Deterministic JSX Auto-Repair (run before Grok auto-fix).
+// This targets a common AI breakage pattern where <Text>{expr is started but not closed.
+function autoCloseTextNodes(code: string): string {
+  return code.replace(
+    /<Text([^>]*)>\{([^}\n]+)\n/g,
+    '<Text$1>{$2}</Text>\n'
+  );
+}
+
 const maybeAugmentMissingFeatures = (input: string, promptText: string): string => {
   const code = (input || '').trim();
   const prompt = (promptText || '').toLowerCase();
@@ -598,6 +607,9 @@ const cleanAiGeneratedCode = (input: string, promptText: string): string => {
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
     .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, ''); // strip other control chars (keep tab/newline)
+
+  // Deterministic JSX repairs (avoid LLM first).
+  code = autoCloseTextNodes(code);
 
   // Ensure import lines end with semicolons (helps some parsers / transforms)
   code = code
