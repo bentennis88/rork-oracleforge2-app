@@ -623,6 +623,80 @@ const cleanAiGeneratedCode = (input: string, promptText: string): string => {
     code = code + '\n' + Array(diff).fill('}').join('\n');
   }
 
+  // Fix a very common AI mistake inside StyleSheet.create({ ... }):
+  // missing commas between style entries, especially when a style value is an object:
+  //   card: { ... }
+  //   header: { ... }
+  // should be:
+  //   card: { ... },
+  //   header: { ... }
+  const fixCommasInStyleSheetCreate = (src: string): string => {
+    let out = src;
+    let idx = 0;
+    while (true) {
+      const start = out.indexOf('StyleSheet.create', idx);
+      if (start === -1) break;
+      const braceStart = out.indexOf('{', start);
+      if (braceStart === -1) break;
+
+      // Find the matching closing brace for this StyleSheet.create({ ... })
+      let depth = 0;
+      let end = -1;
+      for (let i = braceStart; i < out.length; i++) {
+        const ch = out[i];
+        if (ch === '{') depth++;
+        else if (ch === '}') {
+          depth--;
+          if (depth === 0) {
+            end = i;
+            break;
+          }
+        }
+      }
+      if (end === -1) break;
+
+      const before = out.slice(0, braceStart);
+      const block = out.slice(braceStart, end + 1);
+      const after = out.slice(end + 1);
+
+      const lines = block.split('\n');
+      const fixedLines: string[] = [];
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        fixedLines.push(line);
+
+        const next = lines[i + 1];
+        if (!next) continue;
+        const trimmed = line.trimEnd();
+        const nextTrim = next.trim();
+
+        // Next line starts a new style key:  keyName:
+        if (/^[A-Za-z0-9_]+\s*:/.test(nextTrim)) {
+          // If current line ends a nested object or a literal and isn't already comma-terminated, add a comma.
+          // - "}": object style value ended
+          // - "})": rarely inside, but ignore
+          // - "]": array ended
+          // - quotes/digits: primitive ended
+          const shouldComma =
+            (trimmed.endsWith('}') || trimmed.endsWith(']') || /['"\d)]$/.test(trimmed)) &&
+            !trimmed.endsWith(',') &&
+            !trimmed.endsWith('{');
+
+          if (shouldComma) {
+            fixedLines[fixedLines.length - 1] = trimmed + ',';
+          }
+        }
+      }
+
+      const fixedBlock = fixedLines.join('\n');
+      out = before + fixedBlock + after;
+      idx = braceStart + fixedBlock.length;
+    }
+    return out;
+  };
+
+  code = fixCommasInStyleSheetCreate(code);
+
   return code.trim();
 };
 
