@@ -1029,20 +1029,33 @@ const createOracleComponent = async (code: string, promptText: string) => {
       throw new Error(`Module not found: ${name}`);
     };
 
-    // Use eval with an ASYNC factory to support top-level await inside the transpiled module body.
-    // (This makes "await" valid anywhere inside the module wrapper.)
-    const evalCode = `
-      (async function(module, exports, require, ${Object.keys(context).join(', ')}) {
+    // VM-style execution (Expo-safe): new Function + explicit dependency injection.
+    // We still support async by running the module body inside an async IIFE and awaiting it.
+    //
+    // NOTE: We intentionally do NOT use `eval()` here; `new Function` gives us explicit scope
+    // control via parameters and a strict "require allowlist".
+    const executor = new Function(
+      'require',
+      'module',
+      'exports',
+      ...Object.keys(context),
+      `
+      "use strict";
+      return (async () => {
         ${transpiled}
         return module.exports.default || module.exports;
-      })
-    `;
+      })();
+      `
+    ) as any;
 
     console.log('[DynamicOracle] Executing component code...');
 
-    // Execute the code with eval (safe because we control the source via AI)
-    const componentFactory = eval(evalCode) as any;
-    const LoadedComponent = await componentFactory(module, exports, require, ...Object.values(context));
+    const LoadedComponent = await executor(
+      require,
+      module,
+      exports,
+      ...Object.values(context)
+    );
 
     if (!LoadedComponent) {
       throw new Error('No component exported from code');
