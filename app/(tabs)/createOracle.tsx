@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useOracles, Oracle } from '@/contexts/OraclesContext';
+import { generateOracleConfig } from '@/services/oracleIntentEngine';
 import colors from '@/constants/colors';
-import { Sparkles, Home, Edit3 } from 'lucide-react-native';
+import { Sparkles, Home, Edit3, Wand2 } from 'lucide-react-native';
 
 export default function CreateOracleScreen() {
   const router = useRouter();
   const { addOracle } = useOracles();
 
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('');
-  const [content, setContent] = useState('');
+  const [description, setDescription] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
   const [created, setCreated] = useState(false);
   const [newOracleId, setNewOracleId] = useState<string | null>(null);
 
@@ -19,27 +20,54 @@ export default function CreateOracleScreen() {
     return 'oracle_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
   };
 
-  const handleCreate = () => {
-    if (!title.trim() || !category.trim() || !content.trim()) {
+  const handleGenerate = async () => {
+    if (!title.trim()) {
+      Alert.alert('Missing Title', 'Please enter a title for your oracle');
       return;
     }
 
-    const newOracle: Oracle = {
-      id: generateId(),
-      title: title.trim(),
-      category: category.trim(),
-      content: content.trim(),
-    };
-    
-    addOracle(newOracle);
-    setCreated(true);
-    setNewOracleId(newOracle.id);
+    setIsGenerating(true);
+
+    try {
+      // Combine title and description into a prompt for the AI
+      const prompt = description.trim()
+        ? `${title.trim()}. ${description.trim()}`
+        : title.trim();
+
+      console.log('[CreateOracle] Sending prompt to AI:', prompt);
+
+      // Call AI Intent Engine to generate structured config
+      const config = await generateOracleConfig(prompt);
+
+      console.log('[CreateOracle] Received config:', config);
+
+      // Create oracle with AI-generated config
+      const newOracle: Oracle = {
+        id: generateId(),
+        title: title.trim(),
+        config,
+        data: {}, // Empty data object for runtime state
+      };
+
+      addOracle(newOracle);
+      setCreated(true);
+      setNewOracleId(newOracle.id);
+
+      console.log('[CreateOracle] Oracle created successfully:', newOracle.id);
+    } catch (error: any) {
+      console.error('[CreateOracle] Generation failed:', error);
+      Alert.alert(
+        'Generation Failed',
+        error.message || 'Failed to generate oracle. Please try again.'
+      );
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleReset = () => {
     setTitle('');
-    setCategory('');
-    setContent('');
+    setDescription('');
     setCreated(false);
     setNewOracleId(null);
   };
@@ -57,50 +85,63 @@ export default function CreateOracleScreen() {
         {!created ? (
           <>
             <View style={styles.header}>
-              <Sparkles size={32} color={colors.accent} />
+              <Wand2 size={32} color={colors.accent} />
               <Text style={styles.title}>Create Oracle</Text>
-              <Text style={styles.subtitle}>Fill in the details to create a new oracle</Text>
+              <Text style={styles.subtitle}>
+                Describe what you want in natural language - AI will generate a structured oracle
+              </Text>
             </View>
 
             <View style={styles.form}>
               <Text style={styles.label}>Title</Text>
+              <Text style={styles.hint}>What do you want to track, calculate, or be reminded about?</Text>
               <TextInput
                 style={styles.input}
                 value={title}
                 onChangeText={setTitle}
-                placeholder="Enter oracle title"
+                placeholder="e.g., Track daily water intake"
                 placeholderTextColor={colors.textMuted}
               />
 
-              <Text style={styles.label}>Category</Text>
-              <TextInput
-                style={styles.input}
-                value={category}
-                onChangeText={setCategory}
-                placeholder="Enter category"
-                placeholderTextColor={colors.textMuted}
-              />
-
-              <Text style={styles.label}>Content</Text>
+              <Text style={styles.label}>Description (Optional)</Text>
+              <Text style={styles.hint}>Add more details to help the AI understand your intent</Text>
               <TextInput
                 style={[styles.input, styles.textArea]}
-                value={content}
-                onChangeText={setContent}
-                placeholder="Enter oracle content"
+                value={description}
+                onChangeText={setDescription}
+                placeholder="e.g., I want to drink 2 liters per day and see my progress"
                 placeholderTextColor={colors.textMuted}
                 multiline
-                numberOfLines={6}
+                numberOfLines={4}
                 textAlignVertical="top"
               />
 
               <TouchableOpacity
-                style={[styles.button, styles.createButton]}
-                onPress={handleCreate}
+                style={[styles.button, styles.generateButton, isGenerating && styles.buttonDisabled]}
+                onPress={handleGenerate}
+                disabled={isGenerating}
                 activeOpacity={0.85}
               >
-                <Sparkles size={18} color={colors.background} />
-                <Text style={styles.buttonText}>Create Oracle</Text>
+                {isGenerating ? (
+                  <>
+                    <ActivityIndicator size="small" color={colors.background} />
+                    <Text style={styles.buttonText}>Generating...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={18} color={colors.background} />
+                    <Text style={styles.buttonText}>Generate with AI</Text>
+                  </>
+                )}
               </TouchableOpacity>
+
+              <View style={styles.examplesCard}>
+                <Text style={styles.examplesTitle}>💡 Example prompts:</Text>
+                <Text style={styles.exampleText}>• Track my daily water intake</Text>
+                <Text style={styles.exampleText}>• Remind me to take medicine every 8 hours</Text>
+                <Text style={styles.exampleText}>• Calculate compound interest on savings</Text>
+                <Text style={styles.exampleText}>• Track my workout streak</Text>
+              </View>
             </View>
           </>
         ) : (
@@ -108,7 +149,7 @@ export default function CreateOracleScreen() {
             <View style={styles.successHeader}>
               <Sparkles size={48} color={colors.success} />
               <Text style={styles.successTitle}>Oracle Created!</Text>
-              <Text style={styles.successText}>Your oracle has been saved successfully</Text>
+              <Text style={styles.successText}>Your AI-generated oracle is ready to use</Text>
             </View>
 
             <View style={styles.buttonContainer}>
@@ -127,7 +168,7 @@ export default function CreateOracleScreen() {
                 activeOpacity={0.85}
               >
                 <Edit3 size={18} color={colors.background} />
-                <Text style={styles.buttonText}>Refine Oracle</Text>
+                <Text style={styles.buttonText}>View/Edit Oracle</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -135,7 +176,7 @@ export default function CreateOracleScreen() {
                 onPress={handleReset}
                 activeOpacity={0.85}
               >
-                <Sparkles size={18} color={colors.background} />
+                <Wand2 size={18} color={colors.background} />
                 <Text style={styles.buttonText}>Create Another</Text>
               </TouchableOpacity>
             </View>
@@ -174,6 +215,8 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: 'center',
     marginTop: 8,
+    paddingHorizontal: 20,
+    lineHeight: 22,
   },
   form: {
     gap: 16,
@@ -182,6 +225,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: colors.text,
+    marginBottom: 4,
+  },
+  hint: {
+    fontSize: 13,
+    color: colors.textSecondary,
     marginBottom: 8,
   },
   input: {
@@ -194,7 +242,7 @@ const styles = StyleSheet.create({
     borderColor: colors.inputBorder,
   },
   textArea: {
-    minHeight: 120,
+    minHeight: 100,
     textAlignVertical: 'top',
   },
   button: {
@@ -205,7 +253,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     gap: 8,
   },
-  createButton: {
+  generateButton: {
     backgroundColor: colors.accent,
     marginTop: 16,
   },
@@ -213,6 +261,29 @@ const styles = StyleSheet.create({
     color: colors.background,
     fontSize: 16,
     fontWeight: '700',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  examplesCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    padding: 16,
+    marginTop: 8,
+  },
+  examplesTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 12,
+  },
+  exampleText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: 6,
   },
   successContainer: {
     flex: 1,
