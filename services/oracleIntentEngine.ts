@@ -7,6 +7,13 @@ const ANTHROPIC_API_KEY =
   Constants.manifest2?.extra?.expoClient?.extra?.EXPO_PUBLIC_ANTHROPIC_API_KEY ||
   process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
 
+// Log API key status (first 10 chars only for security)
+if (ANTHROPIC_API_KEY) {
+  console.log('[OracleIntentEngine] API Key found:', ANTHROPIC_API_KEY.substring(0, 10) + '...');
+} else {
+  console.error('[OracleIntentEngine] No API key found!');
+}
+
 const SYSTEM_PROMPT = `You are an "Oracle Intent Engine" that translates user input into structured oracle configurations.
 
 ORACLE TYPES:
@@ -79,7 +86,7 @@ async function callAnthropicAPI(userPrompt: string): Promise<string> {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-3-5-sonnet-20240620',
+      model: 'claude-3-sonnet-20240229',
       max_tokens: 1024,
       system: SYSTEM_PROMPT,
       messages: [
