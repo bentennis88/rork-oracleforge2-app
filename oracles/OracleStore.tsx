@@ -11,6 +11,9 @@ export interface Oracle {
   createdAt: number;
 }
 
+// Alias to match requested naming in other docs/instructions.
+export type OracleType = Oracle;
+
 export interface OracleStore {
   oracles: Oracle[];
   createOracle: (type: string, config?: object) => Promise<Oracle>;
@@ -47,7 +50,7 @@ function normalizeOracle(o: any): Oracle | null {
 }
 
 export const [OracleStoreProvider, useOracleStore] = createContextHook<OracleStore>(() => {
-  const [oracles, setOracles] = useState<Oracle[]>([]);
+  const [oracles, setOracles] = useState<OracleType[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
