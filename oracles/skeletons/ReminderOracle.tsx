@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet, Alert, Switch } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { Bell, Plus, Trash2 } from 'lucide-react-native';
 import colors from '@/constants/colors';
 import { ReminderOracleConfig } from '../types';
@@ -10,6 +10,22 @@ type Time = { hour: number; minute: number };
 
 function toKey(t: Time) {
   return String(t.hour).padStart(2, '0') + ':' + String(t.minute).padStart(2, '0');
+}
+
+const isExpoGo =
+  // Most reliable for SDK 53+:
+  // @ts-expect-error - executionEnvironment isn't typed in all Expo SDK TS defs
+  Constants.executionEnvironment === 'storeClient' ||
+  // Fallback:
+  // @ts-expect-error - appOwnership isn't typed in all Expo SDK TS defs
+  Constants.appOwnership === 'expo';
+
+let _notificationsMod: typeof import('expo-notifications') | null = null;
+async function getNotifications() {
+  if (_notificationsMod) return _notificationsMod;
+  // Lazy import so Expo Go warnings only show if the user enables reminders.
+  _notificationsMod = await import('expo-notifications');
+  return _notificationsMod;
 }
 
 export default function ReminderOracle(props: { config: ReminderOracleConfig }) {
@@ -34,6 +50,14 @@ export default function ReminderOracle(props: { config: ReminderOracleConfig }) 
   const [scheduledIds, setScheduledIds] = useState<string[]>([]);
 
   const requestPerm = useCallback(async () => {
+    if (isExpoGo) {
+      Alert.alert(
+        'Development build required',
+        'Notifications are limited in Expo Go. Create a development build to enable reminders.'
+      );
+      return false;
+    }
+    const Notifications = await getNotifications();
     const current = await Notifications.getPermissionsAsync();
     if (current.status === 'granted') return true;
     const next = await Notifications.requestPermissionsAsync();
@@ -70,6 +94,11 @@ export default function ReminderOracle(props: { config: ReminderOracleConfig }) 
   }, [enabled, times, scheduledIds, isLoading, storageKey]);
 
   const cancelAll = useCallback(async () => {
+    if (isExpoGo) {
+      setScheduledIds([]);
+      return;
+    }
+    const Notifications = await getNotifications();
     for (const id of scheduledIds) {
       try {
         await Notifications.cancelScheduledNotificationAsync(id);
@@ -79,6 +108,14 @@ export default function ReminderOracle(props: { config: ReminderOracleConfig }) 
   }, [scheduledIds]);
 
   const scheduleAll = useCallback(async () => {
+    if (isExpoGo) {
+      Alert.alert(
+        'Development build required',
+        'Notifications are limited in Expo Go. Create a development build to enable reminders.'
+      );
+      setEnabled(false);
+      return;
+    }
     const ok = await requestPerm();
     if (!ok) {
       Alert.alert('Notifications disabled', 'Enable notifications to use reminders.');
@@ -88,6 +125,7 @@ export default function ReminderOracle(props: { config: ReminderOracleConfig }) 
 
     await cancelAll();
 
+    const Notifications = await getNotifications();
     const ids: string[] = [];
     for (const t of times) {
       const id = await Notifications.scheduleNotificationAsync({
@@ -153,6 +191,13 @@ export default function ReminderOracle(props: { config: ReminderOracleConfig }) 
           <Switch
             value={enabled}
             onValueChange={(v) => {
+              if (v && isExpoGo) {
+                Alert.alert(
+                  'Development build required',
+                  'Notifications are limited in Expo Go. Create a development build to enable reminders.'
+                );
+                return;
+              }
               setEnabled(v);
               if (!v) {
                 (async () => {
@@ -211,8 +256,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   content: { padding: 16, paddingBottom: 40 },
   center: { padding: 24, alignItems: 'center', justifyContent: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
-  title: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  title: { color: colors.text, fontSize: 16, fontWeight: '700', marginLeft: 10 },
   card: {
     backgroundColor: colors.background,
     borderWidth: 1,
@@ -223,7 +268,7 @@ const styles = StyleSheet.create({
   },
   label: { color: colors.text, fontSize: 13, fontWeight: '800' },
   muted: { color: colors.textMuted, fontSize: 12, marginTop: 6 },
-  row: { flexDirection: 'row', gap: 10, marginTop: 12, alignItems: 'center' },
+  row: { flexDirection: 'row', marginTop: 12, alignItems: 'center' },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   input: {
     flex: 1,
@@ -237,15 +282,15 @@ const styles = StyleSheet.create({
   },
   button: {
     flexDirection: 'row',
-    gap: 8,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.accent,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
+    marginLeft: 10,
   },
-  buttonText: { color: colors.background, fontWeight: '800', fontSize: 13 },
+  buttonText: { color: colors.background, fontWeight: '800', fontSize: 13, marginLeft: 8 },
   timeRow: {
     marginTop: 10,
     paddingVertical: 10,
