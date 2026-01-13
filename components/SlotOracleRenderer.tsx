@@ -28,6 +28,21 @@ function formatNumber(v: unknown): string {
   return '-';
 }
 
+function StatCard(props: { icon?: string; value: string; label: string }) {
+  const IconComp = props.icon && iconMap[props.icon] ? iconMap[props.icon] : TrendingUp;
+  return (
+    <View style={styles.statCard}>
+      <View style={styles.statTop}>
+        <View style={styles.statIconWrap}>
+          <IconComp size={16} color={colors.accent} />
+        </View>
+        <Text style={styles.statLabel}>{props.label}</Text>
+      </View>
+      <Text style={styles.statValue}>{props.value}</Text>
+    </View>
+  );
+}
+
 export default function SlotOracleRenderer(props: {
   template: SlotTemplate;
   userId: string;
@@ -62,19 +77,16 @@ export default function SlotOracleRenderer(props: {
 
       <View style={styles.grid}>
         {stats.map((s, idx) => {
-          const Icon = s.icon && iconMap[s.icon] ? iconMap[s.icon] : TrendingUp;
           const valueKey = s.value;
           const raw = (derived as any)[valueKey] ?? (data as any)[valueKey];
+          const displayValue = formatNumber(raw);
           return (
-            <View key={String(idx)} style={styles.card}>
-              <View style={styles.cardTop}>
-                <View style={styles.iconWrap}>
-                  <Icon size={18} color={colors.accent} />
-                </View>
-                <Text style={styles.cardLabel}>{s.label}</Text>
-              </View>
-              <Text style={styles.cardValue}>{formatNumber(raw)}</Text>
-            </View>
+            <StatCard
+              key={String(idx)}
+              icon={s.icon}
+              value={displayValue}
+              label={s.label}
+            />
           );
         })}
       </View>
@@ -106,7 +118,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 10,
   },
-  card: {
+  statCard: {
     width: '48%',
     backgroundColor: colors.background,
     borderWidth: 1,
@@ -114,13 +126,13 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 12,
   },
-  cardTop: {
+  statTop: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     marginBottom: 10,
   },
-  iconWrap: {
+  statIconWrap: {
     width: 32,
     height: 32,
     borderRadius: 16,
@@ -128,13 +140,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  cardLabel: {
+  statLabel: {
     flex: 1,
     color: colors.textSecondary,
     fontSize: 12,
     fontWeight: '600',
   },
-  cardValue: {
+  statValue: {
     color: colors.text,
     fontSize: 22,
     fontWeight: '800',
