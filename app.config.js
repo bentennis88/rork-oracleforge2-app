@@ -10,7 +10,7 @@ module.exports = {
     ...appJson.expo,
     extra: {
       ...(appJson.expo?.extra || {}),
-      EXPO_PUBLIC_ANTHROPIC_API_KEY: process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
+      EXPO_PUBLIC_XAI_API_KEY: process.env.EXPO_PUBLIC_XAI_API_KEY,
     },
   },
 };
