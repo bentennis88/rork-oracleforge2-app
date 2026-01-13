@@ -12,6 +12,10 @@ export default function OracleDetailScreen() {
   const { oracles, deleteOracle } = useOracleStore();
 
   const oracle = useMemo(() => oracles.find(o => o.id === id), [id, oracles]);
+  const safeBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)');
+  };
 
   const handleDelete = () => {
     if (!oracle) return;
@@ -34,7 +38,7 @@ export default function OracleDetailScreen() {
         <Stack.Screen options={{ headerShown: false }} />
         <View style={styles.empty}>
           <Text style={styles.emptyTitle}>Oracle not found</Text>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.85}>
+          <TouchableOpacity style={styles.backBtn} onPress={safeBack} activeOpacity={0.85}>
             <ArrowLeft size={18} color={colors.text} />
             <Text style={styles.backText}>Back</Text>
           </TouchableOpacity>
@@ -47,7 +51,7 @@ export default function OracleDetailScreen() {
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.topBtn} activeOpacity={0.85}>
+        <TouchableOpacity onPress={safeBack} style={styles.topBtn} activeOpacity={0.85}>
           <ArrowLeft size={20} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.topTitle} numberOfLines={1}>

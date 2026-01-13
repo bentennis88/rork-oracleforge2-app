@@ -11,6 +11,10 @@ export default function PreviewOracleScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ config?: string }>();
   const { createOracle } = useOracleStore();
+  const safeBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)');
+  };
 
   const config = useMemo<OracleConfig | null>(() => {
     if (!params.config) return null;
@@ -35,7 +39,7 @@ export default function PreviewOracleScreen() {
         <View style={styles.empty}>
           <Text style={styles.emptyTitle}>No config provided</Text>
           <Text style={styles.emptyText}>Go back and try again.</Text>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.85}>
+          <TouchableOpacity style={styles.backBtn} onPress={safeBack} activeOpacity={0.85}>
             <ArrowLeft size={18} color={colors.text} />
             <Text style={styles.backText}>Back</Text>
           </TouchableOpacity>
@@ -48,7 +52,7 @@ export default function PreviewOracleScreen() {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.topBtn} activeOpacity={0.85}>
+        <TouchableOpacity onPress={safeBack} style={styles.topBtn} activeOpacity={0.85}>
           <ArrowLeft size={20} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.topTitle} numberOfLines={1}>
