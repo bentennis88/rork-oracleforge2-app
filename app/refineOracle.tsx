@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useOracles, Oracle } from '@/contexts/OraclesContext';
 import DynamicOracleRenderer from '@/components/DynamicOracleRenderer';
 import colors from '@/constants/colors';
 import { ArrowLeft } from 'lucide-react-native';
+import { useAuth } from '@/contexts/AuthContext';
+import { generateOracleCode } from '@/services/oracleCodeGenerator';
+import firebaseService from '@/services/firebaseService';
 
 export default function RefineOracleScreen() {
   const router = useRouter();
@@ -13,6 +16,12 @@ export default function RefineOracleScreen() {
   const oracleId = params.oracleId;
 
   const [oracle, setOracle] = useState<Oracle | null>(null);
+  const { updateOracle } = useOracles();
+  const { user } = useAuth();
+
+  const [isRefineModalVisible, setRefineModalVisible] = useState(false);
+  const [refineFeedback, setRefineFeedback] = useState('');
+  const [isRefining, setIsRefining] = useState(false);
 
   useEffect(() => {
     if (oracleId) {
@@ -60,12 +69,93 @@ export default function RefineOracleScreen() {
         <Text style={styles.topTitle} numberOfLines={1}>
           {oracle.title}
         </Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity
+          onPress={() => setRefineModalVisible(true)}
+          style={styles.topBtn}
+          activeOpacity={0.85}
+        >
+          <Text style={{ color: colors.text, fontWeight: '600' }}>Refine</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.oracleContainer}>
         <DynamicOracleRenderer code={oracle.generatedCode} />
       </View>
+
+      <Modal visible={isRefineModalVisible} animationType="slide" transparent>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalContainer}
+        >
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Refine Oracle</Text>
+            <Text style={styles.modalHint}>Describe changes or improvements you want</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={refineFeedback}
+              onChangeText={setRefineFeedback}
+              placeholder="e.g., change color, add a reset button, show weekly chart"
+              placeholderTextColor={colors.textSecondary}
+              multiline
+            />
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.button, styles.homeButton]}
+                onPress={() => {
+                  setRefineModalVisible(false);
+                  setRefineFeedback('');
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.buttonText, styles.homeButtonText]}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.button, styles.refineButton]}
+                onPress={async () => {
+                  const feedback = refineFeedback.trim();
+                  if (!feedback) {
+                    Alert.alert('No feedback', 'Please enter refinement notes');
+                    return;
+                  }
+                  setIsRefining(true);
+                  try {
+                    const originalPrompt = oracle.title + (oracle.description ? '. ' + oracle.description : '');
+                    const newPrompt = originalPrompt + ' ' + feedback;
+                    const newCode = await generateOracleCode(newPrompt);
+
+                    // Update local context
+                    const updated: Oracle = { ...oracle, generatedCode: newCode, updatedAt: Date.now() };
+                    updateOracle(updated);
+
+                    // Persist to Firebase if we have an oracleId and authenticated user
+                    if (oracleId && user?.id) {
+                      try {
+                        await firebaseService.updateOracle(oracleId, { generatedCode: newCode });
+                      } catch (e) {
+                        console.warn('[RefineOracle] Failed to persist to Firebase:', e);
+                      }
+                    }
+
+                    Alert.alert('Refined', 'Oracle updated');
+                    setRefineModalVisible(false);
+                    setRefineFeedback('');
+                  } catch (e: any) {
+                    console.error('[RefineOracle] Refinement failed:', e);
+                    Alert.alert('Refinement Failed', e?.message || 'Failed to refine oracle');
+                  } finally {
+                    setIsRefining(false);
+                  }
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.buttonText}>{isRefining ? 'Refining...' : 'Apply'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -133,4 +223,32 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.text,
   },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    width: '100%',
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: 8 },
+  modalHint: { fontSize: 13, color: colors.textSecondary, marginBottom: 12 },
+  modalInput: {
+    minHeight: 80,
+    backgroundColor: colors.inputBackground,
+    color: colors.text,
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.inputBorder,
+    marginBottom: 12,
+  },
+  modalButtons: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
 });
