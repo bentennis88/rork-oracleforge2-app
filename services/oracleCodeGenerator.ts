@@ -28,14 +28,15 @@ CRITICAL OUTPUT RULES:
 2. NO markdown code fences (\`\`\`), NO explanations, NO comments outside the code
 3. Code must have ONE default export: the Oracle component
 4. Code must be immediately executable after Babel transpilation
+5. DO NOT include import statements - all dependencies are pre-injected
 
-ALLOWED IMPORTS (these are pre-injected into scope):
-- React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-- View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet, Alert, Switch, Platform, Dimensions from 'react-native'
-- AsyncStorage from '@react-native-async-storage/async-storage'
-- * as Notifications from 'expo-notifications' (lazy load)
-- LineChart, BarChart from 'react-native-chart-kit'
-- Lucide icons (all available)
+AVAILABLE IN SCOPE (no imports needed):
+- React, useState, useEffect, useCallback, useMemo, useRef
+- View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet, Alert, Switch, Platform, Dimensions
+- AsyncStorage, Notifications
+- LineChart, BarChart, PieChart
+- All Lucide icons (Droplet, Bell, Check, Plus, etc.)
+- colors object
 
 MANDATORY FEATURES:
 1. **Persistence (AsyncStorage)**:
@@ -77,13 +78,7 @@ STYLING:
 - Rounded corners, subtle shadows
 - Responsive layouts
 
-EXAMPLE - Water Tracker (DO NOT include markdown fences in your output):
-typescript
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LineChart } from 'react-native-chart-kit';
-import { Droplet } from 'lucide-react-native';
+EXAMPLE - Water Tracker (NO imports, NO markdown fences):
 
 export default function WaterTrackerOracle() {
   const [todayIntake, setTodayIntake] = useState(0);
@@ -275,6 +270,10 @@ function cleanGeneratedCode(rawCode: string): string {
   // Remove markdown code fences
   cleaned = cleaned.replace(/```(?:typescript|tsx|jsx|javascript|js)?\s*/g, '');
   cleaned = cleaned.replace(/```\s*$/g, '');
+
+  // Remove import statements (all dependencies are injected)
+  cleaned = cleaned.replace(/^import\s+.+?from\s+['"][^'"]+['"];?\s*$/gm, '');
+  cleaned = cleaned.replace(/^import\s+\*\s+as\s+\w+\s+from\s+['"][^'"]+['"];?\s*$/gm, '');
 
   // Remove leading/trailing whitespace
   cleaned = cleaned.trim();
