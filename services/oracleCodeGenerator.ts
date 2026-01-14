@@ -68,15 +68,8 @@ CRITICAL: VALID, ERROR-FREE CODE:
 
 EVAL-SAFE REQUIREMENT:
 - NO top-level async/await
-- Wrap async work in useEffect with IIFE:
-  ```
-  useEffect(() => {
-    (async () => {
-      const data = await AsyncStorage.getItem(key);
-      // ...
-    })();
-  }, []);
-  ```
+- Wrap async work in useEffect with IIFE
+- Example: useEffect(() => { (async () => { const data = await AsyncStorage.getItem(key); })(); }, []);
 
 STYLING:
 - Use modern, high-tech dark theme
@@ -84,8 +77,8 @@ STYLING:
 - Rounded corners, subtle shadows
 - Responsive layouts
 
-EXAMPLE - Water Tracker:
-\`\`\`typescript
+EXAMPLE - Water Tracker (DO NOT include markdown fences in your output):
+typescript
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -170,7 +163,7 @@ export default function WaterTrackerOracle() {
             backgroundColor: '#0A0A0A',
             backgroundGradientFrom: '#0A0A0A',
             backgroundGradientTo: '#141414',
-            color: (opacity = 1) => \`rgba(10, 255, 230, \${opacity})\`,
+            color: (opacity = 1) => 'rgba(10, 255, 230, ' + opacity + ')',
             strokeWidth: 2,
           }}
           style={styles.chart}
@@ -196,7 +189,6 @@ const styles = StyleSheet.create({
   chartTitle: { fontSize: 18, fontWeight: '600', color: '#FFFFFF', marginBottom: 16 },
   chart: { borderRadius: 16 },
 });
-\`\`\`
 
 FINAL CHECKLIST:
 ✓ Valid, runnable React Native code
