@@ -70,7 +70,7 @@ export default function DynamicOracleRenderer({ code, onError }: DynamicOracleRe
         setIsLoading(true);
         setError(null);
 
-        // Transpile with Babel
+        // Transpile with Babel (NO CommonJS transform)
         const transpiled = Babel.transform(code, {
           filename: 'OracleComponent.tsx',
           presets: [
@@ -79,7 +79,6 @@ export default function DynamicOracleRenderer({ code, onError }: DynamicOracleRe
             'typescript',
           ],
           plugins: [
-            'transform-modules-commonjs',
             'proposal-class-properties',
             'proposal-object-rest-spread',
           ],
@@ -91,14 +90,19 @@ export default function DynamicOracleRenderer({ code, onError }: DynamicOracleRe
 
         console.log('[DynamicOracle] Creating component...');
 
+        // Create a module-like exports object
+        const moduleExports: any = { default: null };
+
         // Create execution context with all available dependencies
         const context = {
+          // React
           React,
           useState,
           useEffect,
           useMemo,
           useCallback,
           useRef,
+          // React Native
           View,
           Text,
           StyleSheet,
@@ -114,13 +118,16 @@ export default function DynamicOracleRenderer({ code, onError }: DynamicOracleRe
           Modal,
           Animated,
           ActivityIndicator,
+          // Storage & Notifications
           AsyncStorage,
           Notifications,
+          // Charts
           LineChart,
           BarChart,
           PieChart,
+          // Theme
           colors,
-          // All Lucide icons
+          // Lucide Icons
           Check, Plus, Minus, Trash2, RefreshCw, Share2, ShoppingCart, Droplet, Flame,
           TrendingUp, TrendingDown, Clock, Zap, Heart, Star, Calendar, Target, Award,
           Bell, Activity, DollarSign, BarChart3, Coffee, Moon, Sun, Edit2, Save, X,
@@ -142,13 +149,24 @@ export default function DynamicOracleRenderer({ code, onError }: DynamicOracleRe
           Bug, Shield, Key, Fingerprint, Scan, QrCode, AlertCircle, Info, HelpCircle,
           ListTodo, Grid, Layers, Layout, Box, Hexagon, Maximize, Minimize,
           MoreHorizontal, MoreVertical, Menu, SlidersHorizontal, ToggleLeft, ToggleRight,
-          exports: {},
+          // Module system
+          exports: moduleExports,
+          module: { exports: moduleExports },
         };
 
-        // Execute code in sandbox
+        // Execute code in sandbox - wrapping to capture default export
         const contextKeys = Object.keys(context);
         const contextValues = Object.values(context);
-        const executor = new Function(...contextKeys, transpiled + '\nreturn exports.default;');
+        
+        // Wrap transpiled code to ensure we capture the export
+        const wrappedCode = `
+          ${transpiled}
+          
+          // Return the default export
+          return exports.default || module.exports.default || module.exports;
+        `;
+        
+        const executor = new Function(...contextKeys, wrappedCode);
         const OracleComponent = executor(...contextValues);
 
         if (!OracleComponent) {
