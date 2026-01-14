@@ -63,6 +63,22 @@ export default function DynamicOracleRenderer({ code, onError }: DynamicOracleRe
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const cleanCode = (code: string) => {
+    let cleaned = code
+      .replace(/```(?:js|jsx)?\n?/, '')
+      .replace(/```$/, '') // Remove backticks
+      .replace(/^\s*import\s+\*\s+as\s+React\s+from\s+['"]react['"];?/, '') // Remove duplicate React import
+      .replace(/console\.log/g, '// console.log') // Disable logs
+      .replace(/alert/g, '// alert') // Disable alerts
+      .replace(/backgroundColor:\s*'?#?([0-9a-fA-F]+?)(?=[^0-9a-fA-F])/, (match, hex) => `backgroundColor: '#${hex}'`) // Fix unterminated colors
+      .replace(/<View([^>]*)(?<!\/)>/g, '<View$1 />') // Close self-closing tags
+      .replace(/<Text([^>]*)(?<!\/)>/g, '<Text$1 />')
+      .replace(/([^;}])\s*$/gm, '$1;') // Add missing semicolons
+      .replace(/\{([^}]*)\s*$/gm, '{$1}') // Balance braces
+      .trim();
+    return cleaned;
+  };
+
   useEffect(() => {
     (async () => {
       try {
@@ -70,9 +86,11 @@ export default function DynamicOracleRenderer({ code, onError }: DynamicOracleRe
         setIsLoading(true);
         setError(null);
 
-        // Transpile with Babel (NO CommonJS transform)
-        const transpiled = Babel.transform(code, {
+        // Clean and transpile with Babel (NO CommonJS transform)
+        const sanitized = cleanCode(code);
+        const transpiled = Babel.transform(sanitized, {
           filename: 'OracleComponent.tsx',
+          sourceType: 'module',
           presets: [
             ['env', { modules: false }],
             'react',
