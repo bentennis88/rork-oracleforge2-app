@@ -21,85 +21,65 @@ if (XAI_API_KEY) {
   console.error('[OracleCodeGenerator] No API key found!');
 }
 
-const SYSTEM_PROMPT = `You are a senior React Native/Expo developer specializing in building complex internal oracles using AI. Your task is to generate complete React Native components – including UI, state management, logic, Firebase persistence, Expo notifications, and charts – based on user prompts. Prioritize code quality, error handling, and best practices. Use Expo Router for navigation. **Specifically, always ensure your output is valid JSX with properly closed tags, braces, and parentheses. Avoid eval() usage; instead, create functional components with hooks and use structured data for data transformations. Implement robust error handling with try/catch blocks and return appropriate error responses. Include comments to explain complex logic. Use Firebase Realtime Database for data persistence. Use Expo Notifications for scheduled reminders. Integrate react-native-chart-kit for data visualization. Return a fully functional React Native component, ready to be rendered within the DynamicOracleRenderer. **Do not return just code snippets; return the complete component structure.`;
-  return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Droplet size={32} color="#0AFFE6" />
-        <Text style={styles.title}>Water Tracker</Text>
-      </View>
+const SYSTEM_PROMPT = `You are a senior React Native/Expo developer. Generate complete, valid React Native components for Expo.
 
-      <View style={styles.progressContainer}>
-        <Text style={styles.intakeText}>{todayIntake} / {goal} ml</Text>
-        <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: progress + '%' }]} />
-        </View>
-        <Text style={styles.progressPercent}>{Math.round(progress)}%</Text>
-      </View>
+CRITICAL RULES:
+1. Return ONLY the component code, no markdown fences
+2. Use a single default export at the end
+3. Do NOT include import statements - all dependencies are pre-injected
+4. Do NOT include Firebase configuration or initialization code - Firebase is pre-configured
+5. ALWAYS initialize arrays with default values: useState([]) not useState()
+6. ALWAYS handle undefined/null states before accessing properties like .length or .map()
+7. Use optional chaining (?.) and nullish coalescing (??) liberally
+8. Initialize all state with sensible defaults
 
-      <View style={styles.buttons}>
-        <TouchableOpacity style={styles.button} onPress={() => addWater(250)}>
-          <Text style={styles.buttonText}>+250ml</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.button} onPress={() => addWater(500)}>
-          <Text style={styles.buttonText}>+500ml</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.button} onPress={() => addWater(1000)}>
-          <Text style={styles.buttonText}>+1L</Text>
-        </TouchableOpacity>
-      </View>
+STYLESHEET RULES (ABSOLUTELY CRITICAL - READ CAREFULLY):
+- fontWeight MUST ALWAYS be a quoted string, NEVER a bare number
+- CORRECT EXAMPLES:
+  fontWeight: '400'
+  fontWeight: '500'
+  fontWeight: '600'
+  fontWeight: '700'
+  fontWeight: 'bold'
+- WRONG EXAMPLES (NEVER DO THESE):
+  fontWeight: 600  (missing quotes)
+  fontWeight:600"  (malformed)
+  fontWeight: 600" (missing opening quote)
+- Double-check every fontWeight in your StyleSheet
 
-      <View style={styles.chartContainer}>
-        <Text style={styles.chartTitle}>Last 7 Days</Text>
-        <LineChart
-          data={{
-            labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-            datasets: [{ data: history.length ? history : [0] }],
-          }}
-          width={320}
-          height={200}
-          chartConfig={{
-            backgroundColor: '#0A0A0A',
-            backgroundGradientFrom: '#0A0A0A',
-            backgroundGradientTo: '#141414',
-            color: (opacity = 1) => 'rgba(10, 255, 230, ' + opacity + ')',
-            strokeWidth: 2,
-          }}
-          style={styles.chart}
-        />
-      </View>
-    </ScrollView>
-  );
-}
+STRING FORMATTING RULES (CRITICAL):
+- When including references like "Psalm 23:1" or "John 3:16", keep the colon and number together
+- CORRECT: 'The Lord is my shepherd - Psalm 23:1'
+- WRONG: 'The Lord is my shepherd - Psalm 23: 1' (space after colon breaks parsing)
+- Always use consistent quotes, prefer single quotes for strings
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A', padding: 20 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 24 },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#FFFFFF' },
-  progressContainer: { marginBottom: 24 },
-  intakeText: { fontSize: 32, fontWeight: 'bold', color: '#0AFFE6', textAlign: 'center', marginBottom: 12 },
-  progressBar: { height: 12, backgroundColor: '#1F1F1F', borderRadius: 6, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: '#0AFFE6' },
-  progressPercent: { fontSize: 14, color: '#888888', textAlign: 'center', marginTop: 8 },
-  buttons: { flexDirection: 'row', gap: 12, marginBottom: 32 },
-  button: { flex: 1, backgroundColor: '#0AFFE6', padding: 16, borderRadius: 12, alignItems: 'center' },
-  buttonText: { fontSize: 16, fontWeight: '700', color: '#000000' },
-  chartContainer: { marginTop: 16 },
-  chartTitle: { fontSize: 18, fontWeight: '600', color: '#FFFFFF', marginBottom: 16 },
-  chart: { borderRadius: 16 },
-});
+AVAILABLE DEPENDENCIES (pre-injected, do not import):
+- React hooks: React, useState, useEffect, useMemo, useCallback, useRef
+- RN components: View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, FlatList, Modal, Switch, Alert, Animated, ActivityIndicator, SafeAreaView, Button, Pressable
+- Storage: AsyncStorage
+- Notifications: Notifications (use Notifications.scheduleNotificationAsync)
+- Charts: LineChart, BarChart, PieChart (from react-native-chart-kit)
+- Icons: All Lucide icons (Check, Plus, Minus, Trash2, Clock, Bell, etc.)
+- Firebase: database, db, ref, set, push, onValue (pre-initialized, just use directly)
+- Theme: colors object with primary, background, text, etc.
+- Helpers: safeArray(x), safeLength(x), safeNumber(x), safeString(x), safeObject(x), safeFilter(arr, fn), safeMap(arr, fn)
 
-FINAL CHECKLIST:
-✓ Valid, runnable React Native code
-✓ One default export
-✓ AsyncStorage for persistence
-✓ Interactive UI with buttons/inputs
-✓ Real functionality (not just config display)
-✓ Error-free JSX (closed tags, balanced braces)
-✓ No top-level await
-✓ Beautiful styling
-✓ NO markdown fences in output
-`;
+EXAMPLE STATE INITIALIZATION:
+const [items, setItems] = useState([]); // Always initialize arrays
+const [data, setData] = useState({ shifts: [], total: 0 }); // Initialize objects with structure
+const [count, setCount] = useState(0); // Initialize numbers
+
+EXAMPLE SAFE ACCESS:
+const length = (items || []).length; // OR use safeLength(items)
+const mapped = (items || []).map(...); // OR use safeArray(items).map(...)
+const filtered = safeFilter(items, item => item.active);
+const value = data?.nested?.property ?? 'default';
+
+DO NOT GENERATE:
+- import statements
+- firebaseConfig objects
+- initializeApp() or getDatabase() calls
+- require() calls`;
 
 async function callGrokAPI(userPrompt: string): Promise<string> {
   if (!XAI_API_KEY && !CLAUDE_API_KEY) {
@@ -184,6 +164,95 @@ function cleanGeneratedCode(rawCode: string): string {
 
   console.log('[OracleCodeGenerator] Cleaned code preview:', cleaned.substring(0, 200) + '...');
   return cleaned;
+}
+
+// System prompt for refining user ideas into detailed prompts
+const REFINE_PROMPT_SYSTEM = `You are a prompt engineer for an AI oracle/mini-app builder. Your job is to take a user's simple idea and transform it into a detailed, effective prompt that will help generate a better React Native component.
+
+When refining prompts, consider adding:
+- Firebase Realtime Database persistence for trackers/lists (use 'database', 'ref', 'set', 'onValue' which are pre-injected)
+- expo-notifications for reminders/alerts (use 'Notifications.scheduleNotificationAsync')
+- react-native-chart-kit for data visualization (LineChart, BarChart, PieChart are available)
+- AsyncStorage for local persistence
+- Proper state initialization with useState([]) for arrays
+- Custom UI layouts with proper styling
+- Input validation and error handling
+- Lucide icons for visual polish
+
+OUTPUT RULES:
+- Return ONLY the refined prompt text, no explanations
+- Keep it concise but detailed (2-4 sentences max)
+- Focus on features that make the app useful
+- Don't include technical implementation details like "use useState"`;
+
+export async function refinePrompt(userIdea: string): Promise<string> {
+  if (!XAI_API_KEY && !CLAUDE_API_KEY) {
+    throw new Error('No API key found. Check your .env file.');
+  }
+
+  console.log('[OracleCodeGenerator] Refining prompt for:', userIdea);
+
+  const useXAI = !!XAI_API_KEY;
+
+  try {
+    if (useXAI) {
+      const response = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${XAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'grok-3',
+          messages: [
+            { role: 'system', content: REFINE_PROMPT_SYSTEM },
+            { role: 'user', content: `User idea: ${userIdea}` },
+          ],
+          temperature: 0.7,
+          max_tokens: 500,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const refined = data.choices?.[0]?.message?.content || '';
+      console.log('[OracleCodeGenerator] Refined prompt:', refined);
+      return refined.trim();
+    } else {
+      // Claude fallback
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': CLAUDE_API_KEY!,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 500,
+          system: REFINE_PROMPT_SYSTEM,
+          messages: [
+            { role: 'user', content: `User idea: ${userIdea}` },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Claude API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const refined = data.content?.[0]?.text || '';
+      console.log('[OracleCodeGenerator] Refined prompt:', refined);
+      return refined.trim();
+    }
+  } catch (error: any) {
+    console.error('[OracleCodeGenerator] Refine failed:', error);
+    throw new Error('Failed to refine prompt. Please try again.');
+  }
 }
 
 export async function generateOracleCode(userPrompt: string): Promise<string> {

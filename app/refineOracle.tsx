@@ -1,27 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useOracles, Oracle } from '@/contexts/OraclesContext';
 import DynamicOracleRenderer from '@/components/DynamicOracleRenderer';
 import colors from '@/constants/colors';
-import { ArrowLeft } from 'lucide-react-native';
+import { ArrowLeft, Trash2 } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { generateOracleCode } from '@/services/oracleCodeGenerator';
 import firebaseService from '@/services/firebaseService';
 
 export default function RefineOracleScreen() {
   const router = useRouter();
-  const { oracles } = useOracles();
+  const { oracles, updateOracle, deleteOracle } = useOracles();
   const params = useLocalSearchParams<{ oracleId?: string }>();
   const oracleId = params.oracleId;
 
   const [oracle, setOracle] = useState<Oracle | null>(null);
-  const { updateOracle } = useOracles();
   const { user } = useAuth();
 
   const [isRefineModalVisible, setRefineModalVisible] = useState(false);
   const [refineFeedback, setRefineFeedback] = useState('');
   const [isRefining, setIsRefining] = useState(false);
+  const [hasRenderError, setHasRenderError] = useState(false);
 
   useEffect(() => {
     if (oracleId) {
@@ -32,13 +32,93 @@ export default function RefineOracleScreen() {
     }
   }, [oracleId, oracles]);
 
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
     if (router.canGoBack()) {
       router.back();
     } else {
       router.replace('/(tabs)/index');
     }
-  };
+  }, [router]);
+
+  const handleDelete = useCallback(() => {
+    Alert.alert(
+      'Delete Oracle',
+      `Are you sure you want to delete "${oracle?.title}"? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            if (oracleId) {
+              deleteOracle(oracleId);
+              // Try to delete from Firebase too
+              if (user?.id) {
+                try {
+                  await firebaseService.deleteOracle(oracleId);
+                } catch (e) {
+                  console.warn('[RefineOracle] Failed to delete from Firebase:', e);
+                }
+              }
+            }
+            handleBack();
+          },
+        },
+      ]
+    );
+  }, [oracle, oracleId, deleteOracle, handleBack, user]);
+
+  const handleRenderError = useCallback((error: Error) => {
+    setHasRenderError(true);
+    console.error('[RefineOracle] Oracle render error:', error);
+  }, []);
+
+  const handleApplyRefinement = useCallback(async () => {
+    const feedback = refineFeedback.trim();
+    if (!feedback) {
+      Alert.alert('No feedback', 'Please enter refinement notes');
+      return;
+    }
+    setIsRefining(true);
+    try {
+      const originalPrompt = oracle!.title + (oracle!.description ? '. ' + oracle!.description : '');
+      const newPrompt = originalPrompt + ' ' + feedback;
+      const newCode = await generateOracleCode(newPrompt);
+
+      // Update local context
+      const updated: Oracle = { ...oracle!, generatedCode: newCode, updatedAt: Date.now() };
+      updateOracle(updated);
+
+      // Persist to Firebase if we have an oracleId and authenticated user
+      if (oracleId && user?.id) {
+        try {
+          // Try to update, but if doc doesn't exist, save it fresh
+          await firebaseService.updateOracle(oracleId, { generatedCode: newCode });
+        } catch (e: any) {
+          // If the document doesn't exist, save it as a new oracle
+          if (e?.code === 'not-found' || e?.message?.includes('No document to update')) {
+            try {
+              await firebaseService.saveOracle(user.id, updated);
+              console.log('[RefineOracle] Created new Firebase doc for oracle:', oracleId);
+            } catch (saveErr) {
+              console.warn('[RefineOracle] Failed to save new doc to Firebase:', saveErr);
+            }
+          } else {
+            console.warn('[RefineOracle] Failed to persist to Firebase:', e);
+          }
+        }
+      }
+
+      Alert.alert('Refined', 'Oracle updated');
+      setRefineModalVisible(false);
+      setRefineFeedback('');
+    } catch (e: any) {
+      console.error('[RefineOracle] Refinement failed:', e);
+      Alert.alert('Refinement Failed', e?.message || 'Failed to refine oracle');
+    } finally {
+      setIsRefining(false);
+    }
+  }, [refineFeedback, oracle, oracleId, updateOracle, user]);
 
   if (!oracle) {
     return (
@@ -69,17 +149,34 @@ export default function RefineOracleScreen() {
         <Text style={styles.topTitle} numberOfLines={1}>
           {oracle.title}
         </Text>
-        <TouchableOpacity
-          onPress={() => setRefineModalVisible(true)}
-          style={styles.topBtn}
-          activeOpacity={0.85}
-        >
-          <Text style={{ color: colors.text, fontWeight: '600' }}>Refine</Text>
-        </TouchableOpacity>
+        <View style={styles.topRightButtons}>
+          <TouchableOpacity
+            onPress={handleDelete}
+            style={[styles.topBtn, styles.deleteBtn]}
+            activeOpacity={0.85}
+          >
+            <Trash2 size={18} color={colors.error} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setRefineModalVisible(true)}
+            style={[styles.topBtn, styles.refineTopBtn]}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.refineTopText]}>Refine</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
+      {hasRenderError && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorBannerText}>
+            This Oracle has errors. Try refining it or delete and create a new one.
+          </Text>
+        </View>
+      )}
+
       <View style={styles.oracleContainer}>
-        <DynamicOracleRenderer code={oracle.generatedCode} />
+        <DynamicOracleRenderer code={oracle.generatedCode} onError={handleRenderError} />
       </View>
 
       <Modal visible={isRefineModalVisible} animationType="slide" transparent>
@@ -88,66 +185,34 @@ export default function RefineOracleScreen() {
           style={styles.modalContainer}
         >
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Refine Oracle</Text>
-            <Text style={styles.modalHint}>Describe changes or improvements you want</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={refineFeedback}
-              onChangeText={setRefineFeedback}
-              placeholder="e.g., change color, add a reset button, show weekly chart"
-              placeholderTextColor={colors.textSecondary}
-              multiline
-            />
+            <ScrollView contentContainerStyle={styles.modalScrollContent} keyboardShouldPersistTaps="handled">
+              <Text style={styles.modalTitle}>Refine Oracle</Text>
+              <Text style={styles.modalHint}>Describe changes or improvements you want</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={refineFeedback}
+                onChangeText={setRefineFeedback}
+                placeholder="e.g., change color, add a reset button, show weekly chart"
+                placeholderTextColor={colors.textSecondary}
+                multiline
+              />
+            </ScrollView>
 
-            <View style={styles.modalButtons}>
+            <View style={styles.modalFooter}>
               <TouchableOpacity
-                style={[styles.button, styles.homeButton]}
+                style={[styles.modalFooterButton, styles.homeButton]}
                 onPress={() => {
                   setRefineModalVisible(false);
                   setRefineFeedback('');
                 }}
                 activeOpacity={0.85}
               >
-                <Text style={[styles.buttonText, styles.homeButtonText]}>Cancel</Text>
+                <Text style={[styles.buttonText, styles.homeButtonText]}>Close</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.button, styles.refineButton]}
-                onPress={async () => {
-                  const feedback = refineFeedback.trim();
-                  if (!feedback) {
-                    Alert.alert('No feedback', 'Please enter refinement notes');
-                    return;
-                  }
-                  setIsRefining(true);
-                  try {
-                    const originalPrompt = oracle.title + (oracle.description ? '. ' + oracle.description : '');
-                    const newPrompt = originalPrompt + ' ' + feedback;
-                    const newCode = await generateOracleCode(newPrompt);
-
-                    // Update local context
-                    const updated: Oracle = { ...oracle, generatedCode: newCode, updatedAt: Date.now() };
-                    updateOracle(updated);
-
-                    // Persist to Firebase if we have an oracleId and authenticated user
-                    if (oracleId && user?.id) {
-                      try {
-                        await firebaseService.updateOracle(oracleId, { generatedCode: newCode });
-                      } catch (e) {
-                        console.warn('[RefineOracle] Failed to persist to Firebase:', e);
-                      }
-                    }
-
-                    Alert.alert('Refined', 'Oracle updated');
-                    setRefineModalVisible(false);
-                    setRefineFeedback('');
-                  } catch (e: any) {
-                    console.error('[RefineOracle] Refinement failed:', e);
-                    Alert.alert('Refinement Failed', e?.message || 'Failed to refine oracle');
-                  } finally {
-                    setIsRefining(false);
-                  }
-                }}
+                style={[styles.modalFooterButton, styles.refineButton]}
+                onPress={handleApplyRefinement}
                 activeOpacity={0.85}
               >
                 <Text style={styles.buttonText}>{isRefining ? 'Refining...' : 'Apply'}</Text>
@@ -251,4 +316,89 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   modalButtons: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
+  fullWidthButton: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  modalScrollContent: {
+    paddingBottom: 160,
+  },
+  modalFooter: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 16,
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalFooterButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  refineTopBtn: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    minWidth: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  refineTopText: {
+    color: colors.background,
+    fontWeight: '700',
+  },
+  topRightButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  deleteBtn: {
+    backgroundColor: colors.surface,
+    borderColor: colors.error,
+  },
+  errorBanner: {
+    backgroundColor: colors.error + '20',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.error + '40',
+  },
+  errorBannerText: {
+    color: colors.error,
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  button: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: colors.surfaceVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  refineButton: {
+    backgroundColor: colors.accent,
+  },
+  homeButton: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  buttonText: {
+    color: colors.onAccent || colors.text,
+    fontWeight: '700',
+  },
+  homeButtonText: {
+    color: colors.text,
+    fontWeight: '600',
+  },
 });

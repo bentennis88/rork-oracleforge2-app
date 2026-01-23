@@ -238,7 +238,18 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>SETTINGS</Text>
           
-          <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={styles.menuItem}
+            activeOpacity={0.8}
+            onPress={() => {
+              Alert.alert(
+                'BitForgeLegacy LLC — Privacy & Data',
+                'BitForgeLegacy LLC (OracleForge) respects your privacy.\n\n- Data Usage: Generated oracles and user-provided prompts are processed to produce app content. We do not share your prompts or generated oracles with third parties except where required to provide AI services.\n\n- Storage: Your oracles are saved to your account (if signed in) and stored securely in Firebase. Local copies are kept on your device.\n\n- Security: We use industry-standard protections for stored data. Do not share sensitive personal information in prompts.\n\n- Opt-out & Deletion: You can delete individual oracles from your profile. To fully delete your account and associated data, contact support at privacy@bitforgelegacy.com.',
+                [ { text: 'OK', style: 'default' } ],
+                { cancelable: true }
+              );
+            }}
+          >
             <View style={styles.menuItemLeft}>
               <Shield size={18} color={colors.textSecondary} />
               <Text style={styles.menuItemText}>Privacy & Data</Text>

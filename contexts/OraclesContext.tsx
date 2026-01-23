@@ -60,10 +60,29 @@ export const OraclesProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  const addOracle = (oracle: Oracle) => saveOracles([...oracles, oracle]);
-  const updateOracle = (updated: Oracle) =>
-    saveOracles(oracles.map(o => (o.id === updated.id ? updated : o)));
-  const deleteOracle = (id: string) => saveOracles(oracles.filter(o => o.id !== id));
+  const addOracle = (oracle: Oracle) => {
+    setOracles((prev) => {
+      const next = [...prev, oracle];
+      AsyncStorage.setItem('@oracles', JSON.stringify(next)).catch((e) => console.error('[OraclesContext] Failed to save oracles:', e));
+      return next;
+    });
+  };
+
+  const updateOracle = (updated: Oracle) => {
+    setOracles((prev) => {
+      const next = prev.map(o => (o.id === updated.id ? updated : o));
+      AsyncStorage.setItem('@oracles', JSON.stringify(next)).catch((e) => console.error('[OraclesContext] Failed to save oracles:', e));
+      return next;
+    });
+  };
+
+  const deleteOracle = (id: string) => {
+    setOracles((prev) => {
+      const next = prev.filter(o => o.id !== id);
+      AsyncStorage.setItem('@oracles', JSON.stringify(next)).catch((e) => console.error('[OraclesContext] Failed to save oracles:', e));
+      return next;
+    });
+  };
 
   return (
     <OraclesContext.Provider value={{ oracles, addOracle, updateOracle, deleteOracle }}>

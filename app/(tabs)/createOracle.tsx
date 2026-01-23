@@ -1,53 +1,80 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Modal } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useOracles, Oracle } from '@/contexts/OraclesContext';
-import { generateOracleCode } from '@/services/oracleCodeGenerator';
+import { generateOracleCode, refinePrompt } from '@/services/oracleCodeGenerator';
 import colors from '@/constants/colors';
-import { Sparkles, Home, Edit3, Wand2 } from 'lucide-react-native';
+import { Sparkles, Home, Edit3, Wand2, Lightbulb, X, Check } from 'lucide-react-native';
+import { useAuth } from '@/contexts/AuthContext';
+import firebaseService from '@/services/firebaseService';
 
 export default function CreateOracleScreen() {
   const router = useRouter();
   const { addOracle } = useOracles();
+  const { user } = useAuth();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isRefining, setIsRefining] = useState(false);
   const [created, setCreated] = useState(false);
   const [newOracleId, setNewOracleId] = useState<string | null>(null);
+  
+  // Refine modal state
+  const [showRefineModal, setShowRefineModal] = useState(false);
+  const [refinedPrompt, setRefinedPrompt] = useState('');
 
   const generateId = () => {
     return 'oracle_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
   };
 
-  const handleGenerate = async () => {
-    if (!title.trim()) {
-      Alert.alert('Missing Title', 'Please enter a title for your oracle');
+  const handleRefineIdea = async () => {
+    const userIdea = description.trim() 
+      ? `${title.trim()}. ${description.trim()}`
+      : title.trim();
+    
+    if (!userIdea) {
+      Alert.alert('Missing Input', 'Please enter a title or description first');
       return;
     }
 
+    setIsRefining(true);
+
+    try {
+      const refined = await refinePrompt(userIdea);
+      setRefinedPrompt(refined);
+      setShowRefineModal(true);
+    } catch (error: any) {
+      console.error('[CreateOracle] Refine failed:', error);
+      Alert.alert('Refine Failed', error.message || 'Failed to refine your idea. Please try again.');
+    } finally {
+      setIsRefining(false);
+    }
+  };
+
+  const handleAcceptRefinedPrompt = async () => {
+    setShowRefineModal(false);
+    
+    // Use the refined prompt for generation
+    await generateWithPrompt(refinedPrompt);
+  };
+
+  const generateWithPrompt = async (prompt: string) => {
     setIsGenerating(true);
 
     try {
-      // Combine title and description into a prompt for the AI
-      const prompt = description.trim()
-        ? `${title.trim()}. ${description.trim()}`
-        : title.trim();
-
       console.log('[CreateOracle] Sending prompt to AI:', prompt);
 
-      // Call AI Code Generator to generate full React Native component
       const generatedCode = await generateOracleCode(prompt);
 
       console.log('[CreateOracle] Received code, length:', generatedCode.length);
 
-      // Create oracle with AI-generated code
       const oracleId = generateId();
       const now = Date.now();
       const newOracle: Oracle = {
         id: oracleId,
-        title: title.trim(),
-        description: description.trim() || undefined,
+        title: title.trim() || 'Untitled Oracle',
+        description: prompt,
         generatedCode,
         createdAt: now,
         updatedAt: now,
@@ -56,6 +83,16 @@ export default function CreateOracleScreen() {
       addOracle(newOracle);
       setCreated(true);
       setNewOracleId(newOracle.id);
+
+      // Save to Firebase if user is authenticated
+      if (user?.id) {
+        try {
+          await firebaseService.saveOracle(user.id, newOracle);
+          console.log('[CreateOracle] Oracle saved to Firebase:', newOracle.id);
+        } catch (e) {
+          console.warn('[CreateOracle] Failed to save to Firebase (will work locally):', e);
+        }
+      }
 
       console.log('[CreateOracle] Oracle created successfully:', newOracle.id);
     } catch (error: any) {
@@ -67,6 +104,19 @@ export default function CreateOracleScreen() {
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handleGenerate = async () => {
+    if (!title.trim()) {
+      Alert.alert('Missing Title', 'Please enter a title for your oracle');
+      return;
+    }
+
+    const prompt = description.trim()
+      ? `${title.trim()}. ${description.trim()}`
+      : title.trim();
+
+    await generateWithPrompt(prompt);
   };
 
   const handleReset = () => {
@@ -121,9 +171,28 @@ export default function CreateOracleScreen() {
               />
 
               <TouchableOpacity
+                style={[styles.button, styles.refineIdeaButton, isRefining && styles.buttonDisabled]}
+                onPress={handleRefineIdea}
+                disabled={isGenerating || isRefining}
+                activeOpacity={0.85}
+              >
+                {isRefining ? (
+                  <>
+                    <ActivityIndicator size="small" color={colors.accent} />
+                    <Text style={styles.refineButtonText}>Refining...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Lightbulb size={18} color={colors.accent} />
+                    <Text style={styles.refineButtonText}>Refine Idea First</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 style={[styles.button, styles.generateButton, isGenerating && styles.buttonDisabled]}
                 onPress={handleGenerate}
-                disabled={isGenerating}
+                disabled={isGenerating || isRefining}
                 activeOpacity={0.85}
               >
                 {isGenerating ? (
@@ -187,6 +256,64 @@ export default function CreateOracleScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Refine Prompt Modal */}
+      <Modal
+        visible={showRefineModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowRefineModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Lightbulb size={24} color={colors.accent} />
+              <Text style={styles.modalTitle}>Refined Prompt</Text>
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() => setShowRefineModal(false)}
+              >
+                <X size={24} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalHint}>
+              AI has enhanced your idea. Edit if needed, then generate!
+            </Text>
+
+            <TextInput
+              style={styles.modalTextArea}
+              value={refinedPrompt}
+              onChangeText={setRefinedPrompt}
+              multiline
+              numberOfLines={6}
+              textAlignVertical="top"
+              placeholder="Refined prompt will appear here..."
+              placeholderTextColor={colors.textMuted}
+            />
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.button, styles.modalCancelButton]}
+                onPress={() => setShowRefineModal(false)}
+                activeOpacity={0.85}
+              >
+                <X size={18} color={colors.text} />
+                <Text style={styles.modalCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.button, styles.modalAcceptButton]}
+                onPress={handleAcceptRefinedPrompt}
+                activeOpacity={0.85}
+              >
+                <Check size={18} color={colors.background} />
+                <Text style={styles.buttonText}>Generate Oracle</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -257,10 +384,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     gap: 8,
   },
-  generateButton: {
-    backgroundColor: colors.accent,
-    marginTop: 16,
-  },
   buttonText: {
     color: colors.background,
     fontSize: 16,
@@ -325,5 +448,89 @@ const styles = StyleSheet.create({
   },
   newButton: {
     backgroundColor: colors.accentDark,
+  },
+  // Refine Idea button styles
+  refineIdeaButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: colors.accent,
+    marginTop: 16,
+  },
+  refineButtonText: {
+    color: colors.accent,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  generateButton: {
+    backgroundColor: colors.accent,
+    marginTop: 8,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 10,
+  },
+  modalTitle: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalHint: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  modalTextArea: {
+    backgroundColor: colors.inputBackground,
+    borderRadius: 12,
+    padding: 16,
+    color: colors.text,
+    fontSize: 15,
+    borderWidth: 1,
+    borderColor: colors.inputBorder,
+    minHeight: 150,
+    textAlignVertical: 'top',
+    marginBottom: 16,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalCancelButton: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  modalCancelButtonText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalAcceptButton: {
+    flex: 2,
+    backgroundColor: colors.accent,
   },
 });
