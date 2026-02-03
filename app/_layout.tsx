@@ -3,13 +3,18 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { OraclesProvider } from "@/contexts/OraclesContext";
 import CustomSplashScreen from "@/components/SplashScreen";
+import { preloadOracleCache } from "@/components/DynamicOracleRenderer";
 import colors from "@/constants/colors";
 
 SplashScreen.preventAutoHideAsync();
+
+// Pre-warm transpile cache early
+preloadOracleCache();
 
 const queryClient = new QueryClient();
 
@@ -54,21 +59,23 @@ export default function RootLayout() {
 
   if (showSplash) {
     return (
-      <>
+      <SafeAreaProvider>
         <StatusBar style="light" />
         <CustomSplashScreen onFinish={handleSplashFinish} />
-      </>
+      </SafeAreaProvider>
     );
   }
 
   return (
     <QueryClientProvider client={queryClient}>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <AuthProvider>
-          <StatusBar style="light" />
-          <RootLayoutNav />
-        </AuthProvider>
-      </GestureHandlerRootView>
+      <SafeAreaProvider>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <AuthProvider>
+            <StatusBar style="light" />
+            <RootLayoutNav />
+          </AuthProvider>
+        </GestureHandlerRootView>
+      </SafeAreaProvider>
     </QueryClientProvider>
   );
 }

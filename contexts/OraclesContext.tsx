@@ -29,9 +29,17 @@ export const OraclesProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (stored) {
           const parsed = JSON.parse(stored);
           
-          // Filter valid oracles with generated code
+          // Filter valid oracles with generated code and deduplicate by ID
+          const seenIds = new Set<string>();
           const validOracles = Array.isArray(parsed)
             ? parsed.filter((o: any) => {
+                // Check for duplicate IDs
+                if (seenIds.has(o.id)) {
+                  console.warn('[OraclesContext] Filtering out duplicate oracle:', o.id);
+                  return false;
+                }
+                seenIds.add(o.id);
+                
                 // New format: has generatedCode
                 if (o.generatedCode && typeof o.generatedCode === 'string') {
                   return true;
@@ -62,6 +70,13 @@ export const OraclesProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const addOracle = (oracle: Oracle) => {
     setOracles((prev) => {
+      // Check if oracle with this ID already exists
+      if (prev.some(o => o.id === oracle.id)) {
+        console.warn('[OraclesContext] Oracle with ID already exists, updating instead:', oracle.id);
+        const next = prev.map(o => o.id === oracle.id ? oracle : o);
+        AsyncStorage.setItem('@oracles', JSON.stringify(next)).catch((e) => console.error('[OraclesContext] Failed to save oracles:', e));
+        return next;
+      }
       const next = [...prev, oracle];
       AsyncStorage.setItem('@oracles', JSON.stringify(next)).catch((e) => console.error('[OraclesContext] Failed to save oracles:', e));
       return next;

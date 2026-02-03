@@ -214,7 +214,7 @@ export default function DashboardScreen() {
               style={styles.createButton}
               onPress={() => router.push('/(tabs)/createOracle')}
             >
-              <Plus size={18} color={colors.background} />
+              <Plus size={18} color={colors.onAccent} />
               <Text style={styles.createButtonText}>Create Oracle</Text>
             </TouchableOpacity>
           </View>
@@ -272,7 +272,7 @@ export default function DashboardScreen() {
             },
           ]}
         >
-          <Sparkles size={16} color={colors.background} />
+          <Sparkles size={16} color={colors.onAccent} />
           <Text style={styles.toastText}>{toast.message}</Text>
         </Animated.View>
       )}
@@ -304,9 +304,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#FFB800' + '15',
+    backgroundColor: colors.secondary + '20',
     borderWidth: 1,
-    borderColor: '#FFB800' + '40',
+    borderColor: colors.secondary,
     borderRadius: 16,
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -314,7 +314,7 @@ const styles = StyleSheet.create({
   proText: {
     fontSize: 10,
     fontWeight: '700' as const,
-    color: '#FFB800',
+    color: colors.secondaryDark,
     letterSpacing: 1,
   },
   greeting: {
@@ -336,10 +336,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    height: 48,
-    gap: 10,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    height: 52,
+    gap: 12,
+    // Subtle shadow
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   searchInput: {
     flex: 1,
@@ -405,7 +411,7 @@ const styles = StyleSheet.create({
   emptyIconContainer: {
     width: 100,
     height: 100,
-    backgroundColor: colors.accent + '15',
+    backgroundColor: colors.accentMuted,
     borderRadius: 50,
     justifyContent: 'center',
     alignItems: 'center',
@@ -428,13 +434,19 @@ const styles = StyleSheet.create({
   },
   signInButton: {
     backgroundColor: colors.accent,
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 40,
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 44,
+    // Button shadow
+    shadowColor: colors.accent,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   signInButtonText: {
-    color: colors.background,
-    fontSize: 15,
+    color: colors.onAccent,
+    fontSize: 16,
     fontWeight: '600' as const,
   },
   emptyOracles: {
@@ -443,12 +455,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   emptyOraclesIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: colors.surface,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: colors.accentMuted,
     borderWidth: 2,
-    borderColor: colors.surfaceBorder,
+    borderColor: colors.accent,
     borderStyle: 'dashed',
     justifyContent: 'center',
     alignItems: 'center',
@@ -473,13 +485,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     backgroundColor: colors.accent,
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 28,
+    // Button shadow
+    shadowColor: colors.accent,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   createButtonText: {
-    color: colors.background,
-    fontSize: 14,
+    color: colors.onAccent,
+    fontSize: 15,
     fontWeight: '600' as const,
   },
   noResults: {
@@ -497,14 +515,20 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   oraclesList: {
-    gap: 12,
+    gap: 16,
   },
   oracleCard: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    borderRadius: 12,
-    padding: 16,
+    borderColor: colors.cardBorder,
+    borderRadius: 16,
+    padding: 18,
+    // Card shadow for depth
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
   },
   oracleCardHeader: {
     flexDirection: 'row',
@@ -537,17 +561,23 @@ const styles = StyleSheet.create({
     left: 20,
     right: 20,
     backgroundColor: colors.accent,
-    borderRadius: 12,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
+    gap: 10,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    // Toast shadow
+    shadowColor: colors.accent,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
   },
   toastText: {
-    fontSize: 14,
-    color: colors.background,
+    fontSize: 15,
+    color: colors.onAccent,
     fontWeight: '600' as const,
   },
 });

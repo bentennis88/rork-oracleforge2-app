@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, TextInput, Alert, Keyboard, TouchableWithoutFeedback, Pressable } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useOracles, Oracle } from '@/contexts/OraclesContext';
 import DynamicOracleRenderer from '@/components/DynamicOracleRenderer';
 import colors from '@/constants/colors';
-import { ArrowLeft, Trash2 } from 'lucide-react-native';
+import { ArrowLeft, Trash2, Home, X } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { generateOracleCode } from '@/services/oracleCodeGenerator';
 import firebaseService from '@/services/firebaseService';
@@ -176,50 +176,79 @@ export default function RefineOracleScreen() {
       )}
 
       <View style={styles.oracleContainer}>
-        <DynamicOracleRenderer code={oracle.generatedCode} onError={handleRenderError} />
+        <DynamicOracleRenderer 
+          code={oracle.generatedCode} 
+          onError={handleRenderError}
+          onGoHome={handleBack}
+        />
       </View>
 
+      {/* Floating Home Button - Always visible */}
+      <TouchableOpacity
+        style={styles.floatingHomeButton}
+        onPress={handleBack}
+        activeOpacity={0.9}
+      >
+        <X size={20} color={colors.text} />
+      </TouchableOpacity>
+
       <Modal visible={isRefineModalVisible} animationType="slide" transparent>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalContainer}
-        >
-          <View style={styles.modalContent}>
-            <ScrollView contentContainerStyle={styles.modalScrollContent} keyboardShouldPersistTaps="handled">
-              <Text style={styles.modalTitle}>Refine Oracle</Text>
-              <Text style={styles.modalHint}>Describe changes or improvements you want</Text>
-              <TextInput
-                style={styles.modalInput}
-                value={refineFeedback}
-                onChangeText={setRefineFeedback}
-                placeholder="e.g., change color, add a reset button, show weekly chart"
-                placeholderTextColor={colors.textSecondary}
-                multiline
-              />
-            </ScrollView>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.modalContainer}
+          >
+            <Pressable 
+              style={styles.modalBackdrop} 
+              onPress={() => {
+                Keyboard.dismiss();
+                setRefineModalVisible(false);
+                setRefineFeedback('');
+              }}
+            />
+            <View style={styles.modalContent}>
+              <ScrollView contentContainerStyle={styles.modalScrollContent} keyboardShouldPersistTaps="handled">
+                <Text style={styles.modalTitle}>Refine Oracle</Text>
+                <Text style={styles.modalHint}>Describe changes or improvements you want</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={refineFeedback}
+                  onChangeText={setRefineFeedback}
+                  placeholder="e.g., change color, add a reset button, show weekly chart"
+                  placeholderTextColor={colors.inputPlaceholder}
+                  multiline
+                  returnKeyType="default"
+                  blurOnSubmit={false}
+                />
+              </ScrollView>
 
-            <View style={styles.modalFooter}>
-              <TouchableOpacity
-                style={[styles.modalFooterButton, styles.homeButton]}
-                onPress={() => {
-                  setRefineModalVisible(false);
-                  setRefineFeedback('');
-                }}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.buttonText, styles.homeButtonText]}>Close</Text>
-              </TouchableOpacity>
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  style={[styles.modalFooterButton, styles.homeButton]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setRefineModalVisible(false);
+                    setRefineFeedback('');
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.buttonText, styles.homeButtonText]}>Close</Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.modalFooterButton, styles.refineButton]}
-                onPress={handleApplyRefinement}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.buttonText}>{isRefining ? 'Refining...' : 'Apply'}</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalFooterButton, styles.refineButton]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    handleApplyRefinement();
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.buttonText}>{isRefining ? 'Refining...' : 'Apply'}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </TouchableWithoutFeedback>
       </Modal>
     </KeyboardAvoidingView>
   );
@@ -238,15 +267,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceBorder,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
   },
   topBtn: {
     width: 40,
     height: 40,
-    borderRadius: 12,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -276,12 +311,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.card,
     paddingHorizontal: 20,
     paddingVertical: 12,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: colors.surfaceBorder,
+    borderColor: colors.border,
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   backText: {
     fontSize: 14,
@@ -293,27 +333,36 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlay,
   },
   modalContent: {
     width: '100%',
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 20,
     borderWidth: 1,
-    borderColor: colors.surfaceBorder,
+    borderColor: colors.border,
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 8,
   },
   modalTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: 8 },
   modalHint: { fontSize: 13, color: colors.textSecondary, marginBottom: 12 },
   modalInput: {
-    minHeight: 80,
+    minHeight: 100,
     backgroundColor: colors.inputBackground,
-    color: colors.text,
-    borderRadius: 8,
-    padding: 12,
+    color: colors.inputText,
+    borderRadius: 16,
+    padding: 16,
     borderWidth: 1,
     borderColor: colors.inputBorder,
     marginBottom: 12,
+    fontSize: 15,
   },
   modalButtons: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   fullWidthButton: {
@@ -337,23 +386,28 @@ const styles = StyleSheet.create({
   },
   modalFooterButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
+    paddingVertical: 14,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   refineTopBtn: {
     backgroundColor: colors.accent,
     borderColor: colors.accent,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
     minWidth: 72,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: colors.accent,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   refineTopText: {
-    color: colors.background,
+    color: colors.onAccent,
     fontWeight: '700',
   },
   topRightButtons: {
@@ -362,15 +416,15 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   deleteBtn: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.card,
     borderColor: colors.error,
   },
   errorBanner: {
-    backgroundColor: colors.error + '20',
+    backgroundColor: colors.errorLight + '30',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: colors.error + '40',
+    borderBottomColor: colors.error,
   },
   errorBannerText: {
     color: colors.error,
@@ -389,9 +443,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
   },
   homeButton: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: colors.surfaceBorder,
+    borderColor: colors.border,
   },
   buttonText: {
     color: colors.onAccent || colors.text,
@@ -400,5 +454,24 @@ const styles = StyleSheet.create({
   homeButtonText: {
     color: colors.text,
     fontWeight: '600',
+  },
+  floatingHomeButton: {
+    position: 'absolute',
+    top: 60,
+    right: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.card,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+    zIndex: 1000,
   },
 });
